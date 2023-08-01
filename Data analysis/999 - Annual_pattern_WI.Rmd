@@ -1,0 +1,2262 @@
+---
+title: "Analyzing annual data"
+author: "Abby Lewis"
+date: "2022-09-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(viridis)
+library(lubridate)
+library(relaimpo)
+```
+
+```{r}
+#summer_do_points = read.csv("../../results/summary dataframes/summer_do_points.csv")
+#summer_doc_points = read.csv("../../results/summary dataframes/summer_doc_points.csv")
+#summer_p_points = read.csv("../../results/summary dataframes/summer_p_points.csv")
+#summer_chla_points = read.csv("../../results/summary dataframes/summer_chla_points.csv")
+do_demand_points = read.csv("../Compiled data/VW oxygen demand points.csv")
+vhod5_points = read.csv("../Compiled data/VHOD5 points.csv")
+lat_long = read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/fadd3eaa25b5fdd1fc4efba70e660579")
+shape = lat_long%>%
+  filter(!is.na(MeanDepth_m),
+         !is.na(MaximumDepth_m))%>%
+  mutate(VD = 3*MeanDepth_m/MaximumDepth_m)%>%
+  dplyr::select(LakeID,VD)
+summer_avgs = read.csv("../Compiled data/summer_averages_wi.csv")
+strat_avgs = read.csv("../Compiled data//stratified_averages.csv")%>%
+  dplyr::select(LakeID,Layer,Year,Chla_ugL,Chla_date,Temp_C,Temp_date,hypo_depth,DOC_mgL,TP_ugL,TN_ugL,buoyancy_freq, TP_date,TN_date,SA_vol_ratio)%>%
+  rename(strat_Temp_C = Temp_C,
+         strat_Temp_date = Temp_date,
+         strat_TP_ugL = TP_ugL,
+         strat_TN_ugL = TN_ugL,
+         strat_TP_date = TP_date,
+         strat_TN_date = TN_date,
+         strat_buoyancy_freq = buoyancy_freq)
+
+bathy_anox= read.csv("../Compiled data/anoxic_bathymetry.csv")
+
+summer_avgs_wide = summer_avgs%>%
+  dplyr::select(-Chla_ugL,-Chla_date,-DOC_mgL)%>%
+  full_join(strat_avgs)%>%
+  full_join(bathy_anox%>%mutate(Layer="HYPO"))%>%
+  full_join(do_demand_points%>%dplyr::select(DO_demand_mgLd, AHOD_mgLd,Year, LakeID)%>%mutate(Layer="HYPO"))%>%
+  full_join(vhod5_points%>%dplyr::select(VHOD5_mgLd, Year, LakeID)%>%mutate(Layer="HYPO"))%>%
+  unique()%>%
+  pivot_wider(names_from = Layer, values_from = c(TP_ugL, TP_date, DOC_mgL, DOC_date, DO_mgL, DO_date, Chla_ugL, Chla_date, strat_Temp_C, strat_Temp_date, Temp_C, Temp_date, TN_ugL, TN_date, DO_demand_mgLd, AHOD_mgLd, buoyancy_freq, areal_anoxia, depth_ratio, VHOD5_mgLd, hypo_depth, strat_TP_ugL, strat_TN_ugL, strat_TP_date, strat_TN_date, strat_buoyancy_freq,SA_vol_ratio))
+
+length(unique(summer_avgs_wide$LakeID))
+
+doc = summer_avgs%>%
+  dplyr::select(-Chla_ugL,-Chla_date,-DOC_mgL)%>%
+  full_join(strat_avgs)%>%
+  full_join(bathy_anox%>%mutate(Layer="HYPO"))%>%
+  full_join(do_demand_points%>%dplyr::select(DO_demand_mgLd, Year, LakeID)%>%mutate(Layer="HYPO"))%>%
+  full_join(vhod5_points%>%dplyr::select(VHOD5_mgLd, Year, LakeID)%>%mutate(Layer="HYPO"))%>%
+  filter(!is.na(DOC_mgL))
+length(unique(doc$LakeID))
+
+tn = summer_avgs%>%
+  dplyr::select(-Chla_ugL,-Chla_date,-DOC_mgL)%>%
+  full_join(strat_avgs)%>%
+  full_join(bathy_anox%>%mutate(Layer="HYPO"))%>%
+  full_join(do_demand_points%>%dplyr::select(DO_demand_mgLd, Year, LakeID)%>%mutate(Layer="HYPO"))%>%
+  full_join(vhod5_points%>%dplyr::select(VHOD5_mgLd, Year, LakeID)%>%mutate(Layer="HYPO"))%>%
+  filter(!is.na(TN_ugL))
+length(unique(tn$LakeID))
+
+### Temp prep
+climate = read.csv("../Compiled data/historical_temp_output_era5.csv")
+climate_sum = climate%>%
+  mutate(Month = ifelse(Lat<0,Month+6,Month),
+         Year = ifelse(Month>12,Year+1,Year),
+         Month = ifelse(Month>12,Month-12,Month))%>%
+  group_by(LakeID, Year)%>%
+  dplyr::summarize(mean_temp = mean(Temp_C),
+            temp_jan = Temp_C[Month==1],
+            temp_feb = Temp_C[Month==2],
+            temp_mar = Temp_C[Month==3],
+            temp_apr = Temp_C[Month==4],
+            temp_may = Temp_C[Month==5],
+            temp_jun = Temp_C[Month==6],
+            temp_july = Temp_C[Month==7],
+            temp_aug = Temp_C[Month==8],
+            temp_sep = Temp_C[Month==9],
+            temp_oct = Temp_C[Month==10],
+            temp_nov = Temp_C[Month==11],
+            temp_dec = Temp_C[Month==12],
+            Lat = unique(Lat),
+            Lon = unique(Lon))
+
+#precip
+precip = read.csv("../Compiled data/historical_precip_output_era5.csv")
+precip_sum = precip%>%
+  mutate(Month = ifelse(Lat<0,Month+6,Month),
+         Year = ifelse(Month>12,Year+1,Year),
+         Month = ifelse(Month>12,Month-12,Month))%>%
+  group_by(LakeID, Year)%>%
+  dplyr::summarize(mean_precip = mean(Total_Precip),
+            precip_jan = Total_Precip[Month==1],
+            precip_feb = Total_Precip[Month==2],
+            precip_mar = Total_Precip[Month==3],
+            precip_apr = Total_Precip[Month==4],
+            precip_may = Total_Precip[Month==5],
+            precip_jun = Total_Precip[Month==6],
+            precip_july= Total_Precip[Month==7],
+            precip_aug = Total_Precip[Month==8],
+            precip_sep = Total_Precip[Month==9],
+            precip_oct = Total_Precip[Month==10],
+            precip_nov = Total_Precip[Month==11],
+            precip_dec = Total_Precip[Month==12],
+            Lat = unique(Lat),
+            Lon = unique(Lon))
+
+
+with_temp_all = summer_avgs_wide%>%
+  left_join(climate_sum)%>%
+  left_join(precip_sum)
+
+possibly_unstratified = with_temp_all%>%
+  group_by(LakeID)%>%
+  mutate(tot = n())%>%
+  filter((Temp_C_EPI-Temp_C_HYPO)<2)%>%
+  dplyr::summarize(n = n(),
+            pct = n/unique(tot))%>%
+  filter(#pct>.10,
+         n>0)
+
+with_temp_hist = with_temp_all%>%
+  left_join(lat_long, by = c("LakeID"))%>%
+  filter(MaximumDepth_m>6.4,
+         !LakeID=="387")%>%#Hypolimnetic oxygenation
+  mutate(Region = ifelse(StateOrProvince %in% c("Wisconsin", "Minnesota"),
+                         "Midwest",
+                         ifelse(StateOrProvince %in% c("Maine", "New Hampshire", "NH", "Vermont", "NY", "New York"),
+                                "Northeast","Other")))%>%
+  filter(Region%in%c("Midwest","Northeast"))
+
+length(unique(with_temp_hist$LakeID))
+min(with_temp_hist$Year)
+nrow(with_temp_hist)
+nrow(with_temp_hist%>%filter(Year>=1990))
+
+with_temp = with_temp_hist%>%
+  filter(Year>=1990)
+length(unique(with_temp$LakeID))
+```
+
+Plot raw concs
+```{r}
+with_temp%>%
+  filter(Region == "Midwest")%>%
+  ggplot(aes(x = Year, y = DO_mgL_HYPO, group = LakeID))+
+  geom_line()
+
+with_temp%>%
+  filter(Region == "Northeast")%>%
+  ggplot(aes(x = Year, y = DO_mgL_HYPO, group = LakeID))+
+  geom_line()
+```
+
+```{r}
+temp_trends = climate%>%
+  filter(Year>=1990)%>%
+  group_by(Lon,Lat,Year,Month,LakeID)%>%
+  dplyr::summarise(Temp_C = unique(Temp_C))%>%
+  group_by(Lon,Lat,Month,LakeID)%>%
+  dplyr::summarise(trend = lm(Temp_C~Year)$coefficients[2])%>%
+  left_join(lat_long)%>%
+  filter(StateOrProvince %in% c("Wisconsin", "Minnesota"))
+
+temp_trends%>%
+  rename(Latitude = Lat)%>%
+  ggplot(aes(x = Month, y = trend*10, color = Latitude))+
+  geom_hline(yintercept = 0)+
+  geom_jitter()+
+  scale_color_viridis()+
+  ylab("Air temperature trend (ºC/decade)\n1990-2022")+
+  theme_bw()
+
+temp_trends_ne = climate%>%
+  mutate(Month = ifelse(Lat<0,Month+6,Month),
+         Year = ifelse(Month>12,Year+1,Year),
+         Month = ifelse(Month>12,Month-12,Month))%>%
+  filter(Year>=1990, Year<=2022)%>%
+  group_by(Lon,Lat,Year,Month,LakeID)%>%
+  dplyr::summarise(Temp_C = unique(Temp_C))%>%
+  group_by(Lon,Lat,Month,LakeID)%>%
+  dplyr::summarise(trend = lm(Temp_C~Year)$coefficients[2])%>%
+  left_join(lat_long)%>%
+  filter(StateOrProvince%in%c("Maine", "New Hampshire", "NH", "Vermont", "NY", "New York"))
+
+temp_trends_ne%>%
+  rename(Latitude = Lat)%>%
+  ggplot(aes(x = Month, y = trend*10, color = Latitude))+
+  geom_hline(yintercept = 0)+
+  geom_jitter()+
+  scale_color_viridis()+
+  ylab("Air temperature trend (ºC/decade)\n1990-2022")+
+  theme_bw()
+
+annual_temp_trends = climate%>%
+  filter(Year>=2000, Year<=2020)%>%
+  group_by(Lon,Lat,Year,LakeID)%>%
+  dplyr::summarise(Temp_C = mean(Temp_C,na.rm=T))%>%
+  group_by(Lon,Lat,LakeID)%>%
+  dplyr::summarise(trend = lm(Temp_C~Year)$coefficients[2])%>%
+  left_join(lat_long)%>%
+  filter(StateOrProvince=="Wisconsin")
+
+jas_temp_trends = climate%>%
+  filter(Year>=2000, Year<=2020,
+         Month %in% c(7:9))%>%
+  group_by(Lon,Lat,Year,LakeID)%>%
+  dplyr::summarise(Temp_C = mean(Temp_C,na.rm=T))%>%
+  group_by(Lon,Lat,LakeID)%>%
+  dplyr::summarise(trend = lm(Temp_C~Year)$coefficients[2])%>%
+  left_join(lat_long)%>%
+  filter(StateOrProvince=="Wisconsin")
+
+climate%>%
+  filter(Year>=1990)%>%
+  group_by(Lon,Lat,Year,Month,LakeID)%>%
+  dplyr::summarise(Temp_C = unique(Temp_C))%>%
+  group_by(Lon,Lat,Month,LakeID)%>%
+  dplyr::summarise(trend = lm(Temp_C~Year)$coefficients[2])%>%
+  left_join(lat_long)%>%
+  filter(StateOrProvince=="Wisconsin")
+
+climate%>%
+  filter(Year>=1990)%>%
+  group_by(Lon,Lat,Year,Month)%>%
+  dplyr::summarise(Temp_C = unique(Temp_C))%>%
+  ggplot(aes(x = Year, y = Temp_C))+
+  geom_point(aes(color = Lon))+
+  geom_smooth()+
+  facet_wrap(~Month)
+
+min(with_temp$Year)
+max(with_temp$Year)
+with_temp%>%
+  ggplot(aes(x = Year))+
+  ylab("Number of lakes")+
+  geom_histogram(binwidth=1)+
+  theme_bw()
+
+with_temp%>%
+  group_by(LakeID)%>%
+  filter(!is.na(TP_ugL_HYPO))%>%
+  dplyr::summarise(n_year = length(unique(Year)))%>%
+  arrange(-n_year)
+```
+
+```{r}
+library(ggthemes)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+#remotes::install_github("ropensci/rnaturalearthhires")
+library(rnaturalearthhires)
+library(ggspatial)
+min = min(temp_trends$trend)*10
+max = max(temp_trends$trend)*10
+for_states <- temp_trends%>%
+  filter(Month==4)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "December air \ntemperature trend\n(ºC/decade)",limits = c(min,max), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+min = min(temp_trends$trend)*10
+max = max(temp_trends$trend)*10
+for_states <- temp_trends%>%
+  filter(Month==4)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(30, 55), xlim = c(-100,-65))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "April air \ntemperature trend\n(ºC/decade)",limits = c(min,max), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+min = min(annual_temp_trends$trend)*10
+max = max(annual_temp_trends$trend)*10
+for_states <- annual_temp_trends
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "Mean annual air\ntemperature trend\n(ºC/decade)",limits = c(min,max), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+min = min(jas_temp_trends$trend)*10
+max = max(jas_temp_trends$trend)*10
+for_states <- jas_temp_trends
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "JAS air temperature\ntrend (ºC/decade)",limits = c(min,max), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+nut_plot = with_temp%>%
+  group_by(LakeID)%>%
+  dplyr::summarise(TP_ugL_EPI = mean(TP_ugL_EPI, na.rm = T),
+                   DO_mgL_HYPO = mean(DO_mgL_HYPO, na.rm = T),
+                   Chla_ugL_EPI = mean(Chla_ugL_EPI, na.rm = T))%>%
+  left_join(lat_long)
+min = min(nut_plot$TP_ugL_EPI)
+max = max(nut_plot$TP_ugL_EPI)
+for_states <- nut_plot%>%
+  filter(!is.na(TP_ugL_EPI))
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf(fill = "white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = TP_ugL_EPI),shape = 21, color = "grey20", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "Epi. TP (µg/L)",limits = c(min,max), option = "H", trans = "log10")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+nut_plot = with_temp%>%
+  group_by(LakeID)%>%
+  dplyr::summarise(TP_ugL_EPI = mean(TP_ugL_EPI, na.rm = T),
+                   DO_mgL_HYPO = mean(DO_mgL_HYPO, na.rm = T),
+                   Chla_ugL_EPI = mean(Chla_ugL_EPI, na.rm = T))%>%
+  left_join(lat_long)
+min = min(nut_plot$DO_mgL_HYPO)
+max = max(nut_plot$DO_mgL_HYPO)
+for_states <- nut_plot%>%
+  filter(!is.na(DO_mgL_HYPO))
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf(fill = "white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = DO_mgL_HYPO),shape = 21, color = "grey20", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "Hypo. DO (mg/L)",limits = c(min,max), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+nut_plot = with_temp%>%
+  group_by(LakeID)%>%
+  dplyr::summarise(TP_ugL_EPI = mean(TP_ugL_EPI, na.rm = T),
+                   DO_mgL_HYPO = mean(DO_mgL_HYPO, na.rm = T),
+                   Chla_ugL_EPI = mean(Chla_ugL_EPI, na.rm = T))%>%
+  left_join(lat_long)
+min = min(nut_plot$Chla_ugL_EPI)
+max = max(nut_plot$Chla_ugL_EPI)
+for_states <- nut_plot%>%
+  filter(!is.na(Chla_ugL_EPI))
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf(fill = "white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = Chla_ugL_EPI),shape = 21, color = "grey20", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "Epi. chl-a (µg/L)",limits = c(min,max), option = "H", trans = "log10")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+```
+
+
+Temp anomalies - summary figs
+```{r}
+library(mosaic)
+library(ggallin)
+zscore = function(data, na.rm = T){(data-mean(data, na.rm = na.rm))/sd(data, na.rm = na.rm)}
+do_anomaly_stat =with_temp%>%
+  group_by(LakeID)%>%
+  mutate(epi_chla_anom = Chla_ugL_EPI-mean(Chla_ugL_EPI, na.rm = T),
+         epi_temp_anom = Temp_C_EPI-mean(Temp_C_EPI),
+         hypo_temp_anom = Temp_C_HYPO-mean(Temp_C_HYPO, na.rm = T),
+         hypo_p_anom = TP_ugL_HYPO-mean(TP_ugL_HYPO, na.rm = T),
+         demand_anom = DO_demand_mgLd_HYPO-mean(DO_demand_mgLd_HYPO, na.rm = T),
+         #hypo_do_anom = ifelse(length(unique(Year)[!is.na(DO_mgL_HYPO)])>5,DO_mgL_HYPO-mean(DO_mgL_HYPO, na.rm = T),NA),
+         hypo_do_anom = DO_mgL_HYPO-mean(DO_mgL_HYPO, na.rm = T),
+         annual_temp_anom = mean_temp-mean(mean_temp, na.rm = T),
+         strat_temp_anom = (temp_aug+temp_july)/2 - mean((temp_aug+temp_july)/2),
+         jan_anom = temp_jan-mean(temp_jan, na.rm = T),
+         feb_anom = temp_feb-mean(temp_feb, na.rm = T),
+         mar_anom = temp_mar-mean(temp_mar, na.rm = T),
+         apr_anom = temp_apr-mean(temp_apr, na.rm = T),
+         spr_temp = (temp_mar+temp_apr)/2,
+         spr_temp_anom = spr_temp - mean(spr_temp, na.rm = T),
+         may_anom = temp_may-mean(temp_may, na.rm = T),
+         jun_anom = temp_jun-mean(temp_jun, na.rm = T),
+         july_anom = temp_july-mean(temp_july, na.rm = T),
+         aug_anom = temp_aug-mean(temp_aug, na.rm = T),
+         sep_anom = temp_sep-mean(temp_sep, na.rm = T),
+         oct_anom = temp_oct-mean(temp_oct, na.rm = T),
+         nov_anom = temp_nov-mean(temp_nov, na.rm = T),
+         dec_anom = temp_dec-mean(temp_dec, na.rm = T),
+         anoxic_depth_anom = depth_ratio_HYPO-mean(depth_ratio_HYPO, na.rm = T),
+         anoxic_area_anom = areal_anoxia_HYPO-mean(areal_anoxia_HYPO, na.rm = T))
+
+cor_data = do_anomaly_stat%>%
+  dplyr::select(hypo_do_anom,spr_temp_anom,Year)%>%
+  na.omit()
+library(ppcor)
+pcor.test(cor_data$hypo_do_anom, cor_data$spr_temp_anom,cor_data$Year,method = "spearman")$estimate
+library(viridis)
+
+jpeg("../../results/figures/WI/DO and air temp anomaly - spring.jpg", width = 5, height = 3, res = 300, units = "in")
+do_air_sum = do_anomaly_stat%>%
+  filter(!is.na(spr_temp_anom),
+         !is.na(hypo_do_anom))%>%
+  group_by(LakeID)%>%
+  mutate(hypoxic = ifelse(max(DO_mgL_HYPO,na.rm = T)<1,"y","n"))%>%
+  ungroup()%>%
+  filter(hypoxic=="n")%>%
+  mutate(temp_anom_sum = ifelse(spr_temp_anom>0.6,"> 0.6",
+                                ifelse(spr_temp_anom<(-0.6),"< -0.6","between -0.6 \nand 0.6")),
+         temp_anom_sum = factor(temp_anom_sum, levels = c("< -0.6", "between -0.6 \nand 0.6", "> 0.6")),
+         do_anom_sum = ifelse(hypo_do_anom>0.2,"> 0.2",
+                                ifelse(hypo_do_anom<(-0.2),"< -0.2","between -0.2 \nand 0.2")),
+         do_anom_sum = factor(do_anom_sum, levels = c("> 0.2", "between -0.2 \nand 0.2", "< -0.2")))%>%
+  group_by(temp_anom_sum)%>%
+  mutate(n=n())
+length(unique(do_air_sum$LakeID))
+do_air_sum%>%
+  group_by(temp_anom_sum)%>%
+  mutate(temp_n = n())%>%
+  group_by(temp_anom_sum,do_anom_sum)%>%
+  dplyr::summarize(do_n = n(),
+            pct = do_n/unique(temp_n)*100)
+do_air_sum%>%
+  ggplot(aes(fill = do_anom_sum, x = temp_anom_sum))+
+  geom_bar(position = "fill")+
+  geom_hline(yintercept = .5, color = "grey80",lty = "dashed")+
+  geom_text(aes(y = .9, label = paste0("n = ",n)), color = "grey50")+
+  labs(fill="Hypolimnetic \nDO anomaly (mg/L)")+
+  xlab("Spring air temperature anomaly (ºC)")+
+  ylab("Percent of lake-years")+
+  scale_y_continuous(labels = scales::percent)+
+  theme_bw()+
+  scale_fill_viridis(discrete=T, direction = -1)
+dev.off()
+```
+
+
+AIR TEMP VS HYPO DO
+```{r}
+library(ppcor)
+many_lake_temp_sum = with_temp%>%
+  pivot_longer(cols = contains("temp", ignore.case = F), names_to = "mon")%>%
+  filter(!mon=="mean_temp")%>%
+  mutate(mon = month(as.Date(paste0("2022-",substr(mon,6,8),"-01"), format = "%Y-%b-%d")),
+         Year = ifelse(mon>=9,Year+1,Year))
+
+# DO
+many_lake_stat = many_lake_temp_sum%>%
+  filter(!is.na(DO_mgL_HYPO),!is.na(mon), !is.na(value))%>%
+  group_by(LakeID)%>%
+  mutate(hypoxic = ifelse(max(DO_mgL_HYPO)<1,"yes","no"))%>%
+  filter(hypoxic=="no")%>%
+  group_by(LakeID, mon)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  filter(nyear>=10,
+         #max(value)-min(value)>2
+         )%>%
+  dplyr::summarize(do_temp = pcor.test(DO_mgL_HYPO,value,Year,method = "spearman")$estimate,
+            )
+
+labs = c("Sep","Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug")
+
+anova_res = aov(do_temp~as.factor(mon),data=many_lake_stat)
+summary(anova_res)
+tukey = TukeyHSD(anova_res)
+library(multcompView)
+cld = multcompLetters4(anova_res,tukey)$`as.factor(mon)`$Letters
+cld_df = data.frame(cld = cld, mon = names(cld))%>%
+  mutate(mon = factor(as.numeric(mon), levels = c(9:12,1:8), labels = labs))
+
+
+library(MASS)
+jpeg("../../results/figures/WI/DO and temp by month.jpg", width = 6, height = 4, res = 300, units = "in")
+do_temp_data = many_lake_stat%>%
+  group_by(mon)%>%
+  mutate(p = wilcox.test(do_temp)$p.value,
+         n = n(),
+         mon = factor(mon, levels = c(9:12,1:8),labels = labs))
+do_temp = do_temp_data%>%
+  ggplot(aes(x=mon, y = do_temp))+
+  geom_boxplot(aes(color=p<0.05))+
+  geom_text(aes(x = mon, label = cld, y = 1.08),
+            data = cld_df)+
+  #geom_text(aes(label = paste0("n = ",n), y = max(do_temp)))+ #n is the same across all
+  geom_hline(yintercept=0)+
+  ylim(-1,1.08)+
+  xlab("Air temp. month")+
+  ylab(paste0("Correlation with\nlate-summer DO\n(n = ",unique(do_temp_data$n),")"))+
+  theme_bw()+
+  scale_color_manual(values = c("grey50","#FB8B24"))+
+  theme(axis.text.x = element_text(hjust = ifelse(levels(do_temp_data$mon) == "N:     Sep\nS:     Mar", .8, .5)))
+do_temp
+dev.off()
+
+jpeg("../../results/figures/WI/DO and temp by month_lines.jpg", width = 6, height = 4, res = 300, units = "in")
+do_temp_data = many_lake_stat%>%
+  group_by(mon)%>%
+  mutate(p = wilcox.test(do_temp)$p.value,
+         n = n(),
+         mon = factor(mon, levels = c(9:12,1:8),labels = labs))
+do_temp = do_temp_data%>%
+  left_join(lat_long)%>%
+  ggplot(aes(x=mon, y = do_temp))+
+  geom_point(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
+  geom_line(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
+  #geom_text(aes(x = mon, label = cld, y = 1.08),
+  #          data = cld_df)+
+  geom_hline(yintercept=0)+
+  ylim(-1,1.08)+
+  xlab("Air temp. month")+
+  ylab(paste0("Correlation with\nlate-summer DO\n(n = ",unique(do_temp_data$n),")"))+
+  theme_bw()+
+  scale_color_viridis_c()
+do_temp
+dev.off()
+
+for_states <- do_temp_data%>%
+  filter(mon=="Apr")%>%
+  left_join(lat_long)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = do_temp),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "Correlation between\nDO and April temp",limits = c(-1,1), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+summer_do_points_midwest = with_temp%>%
+  group_by(LakeID)%>%
+  filter(max(DO_mgL_HYPO)>1)%>%
+  filter(Region=="Midwest")%>%
+  mutate(n = sum(!is.na(DO_mgL_HYPO)))%>%
+  filter(!is.na(DO_mgL_HYPO),
+         n>=10)%>%
+  mutate(date = ymd_hms(paste(Year,"-01-01 00:00:00")))
+source("sen_slope_custom.R")
+summer_do_midwest = sen_slope_custom(summer_do_points_midwest,"DO_mgL_HYPO")
+mean(summer_do_midwest$trend)*10
+
+summer_do_points_northeast = with_temp%>%
+  group_by(LakeID)%>%
+  filter(max(DO_mgL_HYPO)>1)%>%
+  filter(Region=="Northeast")%>%
+  filter(!StateOrProvince%in%c("NY","New York"))%>%
+  mutate(n = sum(!is.na(DO_mgL_HYPO)))%>%
+  filter(!is.na(DO_mgL_HYPO),
+         n>=10)%>%
+  mutate(date = ymd_hms(paste(Year,"-01-01 00:00:00")))
+summer_do_northeast = sen_slope_custom(summer_do_points_northeast,"DO_mgL_HYPO")
+mean(summer_do_northeast$trend)*10
+
+anoxic = with_temp%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  group_by(LakeID)%>%
+  filter(mean(DO_mgL_HYPO)<1) #or max
+
+for_states <- summer_do%>%
+  left_join(lat_long)%>%
+  mutate(anoxic = ifelse(LakeID%in%anoxic$LakeID,"fully anoxic","not"))
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf(fill="white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10, shape = anoxic), color = "grey20", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_shape_manual(values = c(21,23))+
+  scale_fill_gradientn(colours = c("blue","white","red"),limits = c(-max(summer_do$trend[summer_do$trend<.5]*10),max(summer_do$trend[summer_do$trend<.5]*10)),name = "Hypo. DO trend\n(mg/L/decade)")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+for_states <- summer_do%>%
+  left_join(lat_long)%>%
+  mutate(anoxic = ifelse(LakeID%in%anoxic$LakeID,"fully anoxic","not"))
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf(fill="white") +
+  coord_sf(expand = FALSE, ylim = c(30, 55), xlim = c(-100,-65))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10), shape = 21, color = "grey20", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_shape_manual(values = c(21,23))+
+  scale_fill_gradientn(colours = c("blue","white","red"),limits = c(-max(summer_do$trend[summer_do$trend<.5]*10),max(summer_do$trend[summer_do$trend<.5]*10)),name = "Hypo. DO trend\n(mg/L/decade)")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+summer_do%>%
+  filter(trend<.8)%>%
+  mutate(anoxic = ifelse(LakeID%in%anoxic$LakeID,"fully anoxic","not"))%>%
+  left_join(annual_temp_trends, by = "LakeID")%>%
+  ggplot(aes(x = trend.y,y = trend.x, color = anoxic))+
+  geom_smooth(method = "lm")+
+  geom_point()+
+  xlab("Air temperature trend")+
+  ylab("DO trend")
+
+summer_do%>%
+  filter(trend<.8)%>%
+  mutate(anoxic = ifelse(LakeID%in%anoxic$LakeID,"fully anoxic","not"))%>%
+  left_join(temp_trends%>%filter(Month==4), by = "LakeID")%>%
+  ggplot(aes(x = trend.y,y = trend.x,color=anoxic))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  xlab("Air temperature trend")+
+  ylab("DO trend")
+
+summer_do%>%
+  filter(trend<0.8)%>%
+  mutate(anoxic = ifelse(LakeID%in%anoxic$LakeID,"fully anoxic","not"))%>%
+  filter(anoxic == "not")%>%
+  ggplot(aes(x = trend))+
+  geom_vline(xintercept = median(summer_do$trend[!summer_do$LakeID%in%anoxic$LakeID]), lty = "dashed", color = "grey20")+
+  geom_vline(xintercept = mean(summer_do$trend[!summer_do$LakeID%in%anoxic$LakeID]), lty = "dotted", color = "grey20")+
+  geom_vline(xintercept = 0)+
+  geom_density()+
+  xlab("Hypo. DO trend (mg/L)")
+```
+
+```{r}
+######## Hypo temp
+# Stratified hypo temp
+
+many_lake_stat = many_lake_temp_sum%>%
+  filter(!is.na(strat_Temp_C_HYPO),!is.na(mon), !is.na(value))%>%
+  group_by(LakeID, mon)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  filter(nyear>=10,
+         #max(value)-min(value)>2
+         )%>%
+  dplyr::summarize(temp_temp = pcor.test(strat_Temp_C_HYPO,value,Year,method = "spearman")$estimate,
+            )
+anova_res = aov(temp_temp~as.factor(mon),data=many_lake_stat)
+summary(anova_res)
+tukey = TukeyHSD(anova_res)
+library(multcompView)
+cld = multcompLetters4(anova_res,tukey)$`as.factor(mon)`$Letters
+cld_df = data.frame(cld = cld, mon = names(cld))%>%
+  mutate(mon = factor(as.numeric(mon), levels = c(9:12,1:8), labels = labs))
+
+temp_temp_data = many_lake_temp_sum%>%
+  group_by(LakeID, mon)%>%
+  filter(!is.na(strat_Temp_C_HYPO),!is.na(mon), !is.na(value))%>%
+  mutate(nyear = length(unique(Year)))%>%
+  filter(nyear>=10,
+         #max(value)-min(value)>2
+         )%>%
+  dplyr::summarize(temp_temp = pcor.test(strat_Temp_C_HYPO,value,Year,method = "spearman")$estimate,
+            )%>%
+  group_by(mon)%>%
+  mutate(p = wilcox.test(temp_temp)$p.value,
+         n = n(),
+         mon = factor(mon, levels = c(9:12,1:8), labels = labs))
+unique(temp_temp_data$LakeID)
+
+jpeg("../../results/figures/WI/Air and strat hypo temp by month.jpg", width = 6, height = 4, res = 300, units = "in")
+temp_temp = temp_temp_data%>%
+  ggplot(aes(x=mon, y = temp_temp))+
+  geom_boxplot(aes(color=p<0.05))+
+  geom_text(aes(x = mon, label = cld, y = 1.08),
+            data = cld_df)+
+  geom_hline(yintercept=0)+
+  xlab("Air temp. month")+
+  ylab(paste0("Correlation with\nstratified average hypo.\ntemp. (n = ",unique(temp_temp_data$n),")"))+
+  theme_bw()+
+  ylim(-1,1.08)+
+  scale_color_manual(values = c("grey50","#FB8B24"))+
+  theme(axis.text.x = element_text(hjust = ifelse(levels(temp_temp_data$mon) == "N:     Sep\nS:     Mar", .8, .5)))
+temp_temp
+dev.off()
+
+jpeg("../../results/figures/WI/Air and strat hypo temp by month lines.jpg", width = 6, height = 4, res = 300, units = "in")
+temp_temp = temp_temp_data%>%
+  left_join(lat_long)%>%
+  ggplot(aes(x=mon, y = temp_temp))+
+  geom_point(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
+  geom_line(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
+  geom_text(aes(x = mon, label = cld, y = 1.08),
+            data = cld_df)+
+  geom_hline(yintercept=0)+
+  xlab("Air temp. month")+
+  ylab(paste0("Correlation with\nstratified average hypo.\ntemp. (n = ",unique(temp_temp_data$n),")"))+
+  theme_bw()+
+  ylim(-1,1.08)+
+  scale_color_viridis()+
+  theme(axis.text.x = element_text(hjust = ifelse(levels(temp_temp_data$mon) == "N:     Sep\nS:     Mar", .8, .5)))
+temp_temp
+dev.off()
+
+for_states <- temp_temp_data%>%
+  filter(mon=="Apr")%>%
+  left_join(lat_long)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = temp_temp),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "Correlation between\nhypo. and April temp",limits = c(-1,1), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+summer_temp_points = with_temp%>%
+  group_by(LakeID)%>%
+  mutate(n = sum(!is.na(Temp_C_HYPO)))%>%
+  filter(!is.na(Temp_C_HYPO),
+         n>=10)%>%
+  mutate(date = ymd_hms(paste(Year,"-01-01 00:00:00")))
+source("sen_slope_custom.R")
+summer_temp = sen_slope_custom(summer_temp_points,"Temp_C_HYPO")
+
+for_states <- summer_temp%>%
+  left_join(lat_long)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf(fill="white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10),shape = 21, color = "grey20", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_gradientn(colours = c("blue","white","red"),limits = c(min(summer_temp$trend*10),abs(min(summer_temp$trend*10))),name = "Hypo. temp trend\n(ºC/decade)")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+
+summer_temp%>%
+  left_join(annual_temp_trends, by = "LakeID")%>%
+  ggplot(aes(x = trend.y,y = trend.x))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+summer_temp%>%
+  filter(trend>-0.2,trend<0.1)%>%
+  left_join(temp_trends%>%filter(Month==4), by = "LakeID")%>%
+  ggplot(aes(x = trend.y,y = trend.x))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+summer_temp%>%
+  ggplot(aes(x = trend*10))+
+  geom_vline(xintercept = median(summer_temp$trend)*10, lty = "dashed", color = "grey20")+
+  geom_vline(xintercept = 0)+
+  geom_density()+
+  xlab("Hypo. temp. trend (ºC/decade)")
+```
+
+
+```{r}
+many_lake_stat = many_lake_temp_sum%>%
+  filter(!is.na(DO_demand_mgLd_HYPO),!is.na(mon), !is.na(value))%>%
+  group_by(LakeID, mon)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  filter(nyear>=10,
+         #max(value)-min(value)>2
+         )%>%
+  dplyr::summarize(temp_demand = pcor.test(DO_demand_mgLd_HYPO,value,Year,method = "spearman")$estimate,
+            )
+anova_res = aov(temp_demand~as.factor(mon),data=many_lake_stat)
+summary(anova_res)
+tukey = TukeyHSD(anova_res)
+library(multcompView)
+cld = multcompLetters4(anova_res,tukey)$`as.factor(mon)`$Letters
+cld_df = data.frame(cld = cld, mon = names(cld))%>%
+  mutate(mon = factor(as.numeric(mon), levels = c(9:12,1:8), labels = labs))
+
+jpeg("../../results/figures/WI/Demand and air temp by month.jpg", width = 6, height = 4, res = 300, units = "in")
+temp_demand_data = many_lake_temp_sum%>%
+  group_by(LakeID, mon)%>%
+  filter(!is.na(DO_demand_mgLd_HYPO),!is.na(mon), !is.na(value))%>%
+  mutate(nyear = length(unique(Year)))%>%
+  filter(nyear>=10,
+         #max(value)-min(value)>2
+         )%>%
+  dplyr::summarize(demand_temp = pcor.test(DO_demand_mgLd_HYPO,value,Year,method = "spearman")$estimate,
+            )%>%
+  group_by(mon)%>%
+  mutate(p = wilcox.test(demand_temp)$p.value,
+         n = n(),
+         mon = factor(mon, levels = c(9:12,1:8),labels = labs))
+   
+temp_demand = temp_demand_data%>%
+  ggplot(aes(x=mon, y = demand_temp))+
+  geom_boxplot(aes(color=p<0.05))+
+  geom_text(aes(x = mon, label = cld, y = 1.08),
+            data = cld_df)+
+  geom_hline(yintercept=0)+
+  xlab("Air temp. month")+
+  ylab(paste0("\nCorrelation with\nVHOD (n = ",unique(temp_demand_data$n),")"))+
+  theme_bw()+
+  ylim(-1,1.08)+
+  scale_color_manual(values = c("grey50","#FB8B24"))
+temp_demand
+dev.off()
+
+jpeg("../../results/figures/WI/Demand and air temp by month lines.jpg", width = 6, height = 4, res = 300, units = "in")
+temp_demand = temp_demand_data%>%
+  left_join(lat_long)%>%
+  ggplot(aes(x=mon, y = demand_temp))+
+  geom_point(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
+  geom_line(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
+  geom_text(aes(x = mon, label = cld, y = 1.08),
+            data = cld_df)+
+  geom_hline(yintercept=0)+
+  xlab("Air temp. month")+
+  ylab(paste0("\nCorrelation with\nVHOD (n = ",unique(temp_demand_data$n),")"))+
+  theme_bw()+
+  ylim(-1,1.08)+
+  scale_color_viridis()
+temp_demand
+dev.off()
+
+for_states <- temp_demand_data%>%
+  filter(mon=="Apr")%>%
+  left_join(lat_long)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = demand_temp),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "Correlation between\nVHOD and April temp",limits = c(-1,1), option = "H")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+```
+
+
+```{r}
+many_lake_temp_sum%>%
+  group_by(LakeID, mon)%>%
+  filter(!is.na(Chla_ugL_EPI),!is.na(mon), !is.na(value))%>%
+  mutate(nyear = length(unique(Year)))%>%
+  filter(nyear>=10,
+         #max(value)-min(value)>2
+         )%>%
+  dplyr::summarize(chla_temp = pcor.test(Chla_ugL_EPI,value,Year,method = "spearman")$estimate,
+            )%>%
+  group_by(mon)%>%
+  mutate(p = wilcox.test(chla_temp)$p.value)%>%
+  ggplot(aes(x=factor(mon, levels = c(9:12,1:8)), y = chla_temp))+
+  geom_boxplot(aes(color=p<0.05))+
+  #geom_text(aes(x = factor(as.numeric(mon), levels = c(9:12,1:8)), label = cld, y = 1.08),
+  #          data = cld_df)+
+  geom_hline(yintercept=0)+
+  xlab("Air temp. month")+
+  ylab("Correlation with chl-a")+
+  theme_bw()+
+  ylim(-1,1.08)+
+  scale_color_manual(values = c("grey50","#FB8B24"))
+
+many_lake_temp_sum%>%
+  group_by(LakeID, mon)%>%
+  filter(!is.na(TP_ugL_HYPO),!is.na(mon), !is.na(value))%>%
+  mutate(nyear = length(unique(Year)))%>%
+  filter(nyear>=10,
+         #max(value)-min(value)>2
+         )%>%
+  dplyr::summarize(chla_temp = pcor.test(TP_ugL_HYPO,value,Year,method = "spearman")$estimate,
+            )%>%
+  group_by(mon)%>%
+  mutate(p = wilcox.test(chla_temp)$p.value)%>%
+  ggplot(aes(x=factor(mon, levels = c(9:12,1:8)), y = chla_temp))+
+  geom_boxplot(aes(color=p<0.05))+
+  #geom_text(aes(x = factor(as.numeric(mon), levels = c(9:12,1:8)), label = cld, y = 1.08),
+  #          data = cld_df)+
+  geom_hline(yintercept=0)+
+  xlab("Air temp. month")+
+  ylab("Correlation with hypo. TP")+
+  theme_bw()+
+  ylim(-1,1.08)+
+  scale_color_manual(values = c("grey50","#FB8B24"))
+
+library(ggpubr)
+jpeg("../../results/figures/WI/Monthly correlations.jpg", width = 5, height = 8, res = 300, units = "in")
+ggarrange(temp_temp+theme(axis.title.x = element_blank()),temp_demand+theme(axis.title.x = element_blank()),do_temp,
+          common.legend = T, legend = "bottom",nrow=3, labels = "auto", align = "hv")
+dev.off()
+
+us_map
+```
+
+CHLOROPHYLL VS OXYGEN DEMAND (lags)
+```{r}
+chla_demand_stat = with_temp%>%
+  unique()%>%
+  group_by(LakeID)%>%
+  arrange(LakeID,Year)%>%
+  mutate(do_lag = lag(DO_mgL_HYPO),
+         chla_lag = lag(Chla_ugL_EPI),
+         chla_lag2 = lag(chla_lag),
+         chla_lag2 = ifelse(lag(lag(Year))==Year-2,chla_lag2,NA),
+         #chla_lag3 = lag(chla_lag2),
+         #chla_lag3 = ifelse(lag(lag(lag(Year)))==Year-3,chla_lag3,NA),
+         lag_is_last_year = ifelse(lag(Year)==(Year-1),T,F))%>%
+  filter(lag_is_last_year)%>%
+  pivot_longer(cols = c(Chla_ugL_EPI,chla_lag, chla_lag2))%>% #, chla_lag3
+  filter(!is.na(value),!is.na(DO_demand_mgLd_HYPO))%>%
+  group_by(name,LakeID)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  arrange(LakeID)%>%
+  filter(nyear>=10,
+         #(max(value)-min(value))>1,
+         #min(value)<(0.7*max(value))
+         )%>%
+  dplyr::summarize(demand_chla = cor.test(DO_demand_mgLd_HYPO,value,method = "spearman")$estimate
+    #demand_chla = pcor.test(DO_demand_mgLd_HYPO,value,Year,method = "spearman")$estimate
+            )
+
+jpeg("../../results/figures/WI/Chla vs Demand lag.jpg", width = 4, height = 3.5, res = 300, units = "in")
+chla_demand_stat%>%
+  group_by(name)%>%
+  mutate(p = wilcox.test(demand_chla)$p.value,
+         n = n())%>%
+  ggplot(aes(x=factor(name, levels = c("chla_lag3","chla_lag2","chla_lag","Chla_ugL_EPI","chla_lead","chla_lead2"), labels = c("t-3","t-2","t-1","t","t+1", "t+2")),y=demand_chla))+
+  geom_hline(yintercept = 0)+
+  geom_boxplot(aes(color = p<0.05), outlier.shape = NA)+
+  geom_jitter(width = 0.15, color = "grey20", fill = "white",shape = 21)+
+  geom_text(aes(label = paste0("n = ",n), y = max(demand_chla)+.1))+
+  ylab("Correlation between chl-a and VHOD")+
+  scale_color_manual(values = c("grey50","#FB8B24"))+
+  xlab("Chl-a lag")+
+  theme_bw()
+dev.off()
+
+chla_cat = chla_demand_stat%>%
+  left_join(lat_long, by = c("LakeID"))%>%
+  mutate(depth_class = ifelse(MaximumDepth_m<=15,"Shallow (Zmax ≤ 15)","Deep (Zmax > 15)"))
+
+anova_res_chla = aov(demand_chla~name,data=chla_demand_stat)
+summary(anova_res_chla) #No significant differences between lags
+#tukey_chla = TukeyHSD(anova_res_chla)
+```
+
+EPI P vs CHL-A (lags)
+```{r}
+p_chla_stat = with_temp%>%
+  unique()%>%
+  group_by(LakeID)%>%
+  arrange(LakeID,Year)%>%
+  mutate(p_lag = lag(strat_TP_ugL_EPI),
+         p_lag2 = lag(p_lag),
+         p_lag2 = ifelse(lag(lag(Year))==Year-2,p_lag2,NA),
+         lag_is_last_year = ifelse(lag(Year)==(Year-1),T,F))%>%
+  filter(lag_is_last_year)%>%
+  pivot_longer(cols = c(strat_TP_ugL_EPI,p_lag,p_lag2))%>% #, chla_lag3
+  filter(!is.na(value),!is.na(Chla_ugL_EPI))%>%
+  group_by(name,LakeID)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  arrange(LakeID)%>%
+  filter(nyear>=10,
+         #(max(value)-min(value))>1,
+         #min(value)<(0.7*max(value))
+         )%>%
+  dplyr::summarize(chla_p = cor.test(Chla_ugL_EPI,value,method = "spearman")$estimate
+    #demand_chla = pcor.test(DO_demand_mgLd_HYPO,value,Year,method = "spearman")$estimate
+            )
+
+jpeg("../../results/figures/WI/Epi P vs chl-a lag.jpg", width = 4, height = 3.5, res = 300, units = "in")
+p_chla_stat%>%
+  mutate(p = wilcox.test(chla_p)$p.value,
+         n = n())%>%
+  ggplot(aes(x=factor(name, levels = c("p_lag3","p_lag2","p_lag","strat_TP_ugL_EPI","p_lead","p_lead2"), labels = c("t-3","t-2","t-1","t","t+1", "t+2")),y=chla_p))+
+  geom_hline(yintercept = 0)+
+  geom_boxplot(aes(color = p<0.05), outlier.shape = NA)+
+  geom_jitter(width = 0.15, color = "grey20", fill = "white",shape = 21)+
+  geom_text(aes(label = paste0("n = ",n), y = max(chla_p)+.1))+
+  ylab("Correlation between epi. TP and chl-a")+
+  scale_color_manual(values = c("grey50","#FB8B24"))+
+  xlab("Epi. TP lag")+
+  theme_bw()
+dev.off()
+```
+
+EPI vs HYPO P (lags)
+```{r}
+p_p_stat = with_temp%>%
+  unique()%>%
+  group_by(LakeID)%>%
+  arrange(LakeID,Year)%>%
+  mutate(p_lag = lag(TP_ugL_HYPO),
+         p_lag2 = lag(p_lag),
+         p_lag2 = ifelse(lag(lag(Year))==Year-2,p_lag2,NA),
+         lag_is_last_year = ifelse(lag(Year)==(Year-1),T,F))%>%
+  filter(lag_is_last_year)%>%
+  pivot_longer(cols = c(TP_ugL_HYPO,p_lag,p_lag2))%>% #, chla_lag3
+  filter(!is.na(value),!is.na(TP_ugL_EPI))%>%
+  group_by(name,LakeID)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  arrange(LakeID)%>%
+  filter(nyear>=10,
+         #(max(value)-min(value))>1,
+         #min(value)<(0.7*max(value))
+         )%>%
+  dplyr::summarize(p_p = cor.test(TP_ugL_EPI,value,method = "spearman")$estimate
+    #demand_chla = pcor.test(DO_demand_mgLd_HYPO,value,Year,method = "spearman")$estimate
+            )
+
+jpeg("../../results/figures/WI/Epi P vs hypo P lag.jpg", width = 4, height = 3.5, res = 300, units = "in")
+p_p_stat%>%
+  mutate(p = wilcox.test(p_p)$p.value,
+         n = n())%>%
+  ggplot(aes(x=factor(name, levels = c("p_lag3","p_lag2","p_lag","TP_ugL_HYPO","p_lead","p_lead2"), labels = c("t-3","t-2","t-1","t","t+1", "t+2")),y=p_p))+
+  geom_hline(yintercept = 0)+
+  geom_boxplot(aes(color = p<0.05), outlier.shape = NA)+
+  geom_jitter(width = 0.15, color = "grey20", fill = "white",shape = 21)+
+  geom_text(aes(label = paste0("n = ",n), y = max(p_p)+.1))+
+  ylab("Correlation between hypo. TP and epi. TP")+
+  scale_color_manual(values = c("grey50","#FB8B24"))+
+  xlab("Hypo. TP lag")+
+  theme_bw()
+dev.off()
+```
+
+Hypo P and DO (lags)
+```{r}
+p_do_stat = with_temp%>%
+  unique()%>%
+  group_by(LakeID)%>%
+  arrange(LakeID,Year)%>%
+  mutate(do_lag = lag(DO_mgL_HYPO),
+         do_lag2 = lag(do_lag),
+         do_lag2 = ifelse(lag(lag(Year))==Year-2,do_lag2,NA),
+         lag_is_last_year = ifelse(lag(Year)==(Year-1),T,F))%>%
+  filter(lag_is_last_year)%>%
+  pivot_longer(cols = c(DO_mgL_HYPO,do_lag,do_lag2))%>% #, chla_lag3
+  filter(!is.na(value),!is.na(TP_ugL_HYPO))%>%
+  group_by(name,LakeID)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  arrange(LakeID)%>%
+  filter(nyear>=10,
+         #(max(value)-min(value))>1,
+         #min(value)<(0.7*max(value))
+         )%>%
+  dplyr::summarize(p_do = cor.test(TP_ugL_HYPO,value,method = "spearman")$estimate
+    #demand_chla = pcor.test(DO_demand_mgLd_HYPO,value,Year,method = "spearman")$estimate
+            )
+
+jpeg("../../results/figures/WI/Hypo P vs DO lag.jpg", width = 4, height = 3.5, res = 300, units = "in")
+p_do_stat%>%
+  group_by(name)%>%
+  mutate(p = wilcox.test(p_do)$p.value,
+         n = n())%>%
+  ggplot(aes(x=factor(name, levels = c("do_lag3","do_lag2","do_lag","DO_mgL_HYPO","do_lead","do_lead2"), labels = c("t-3","t-2","t-1","t","t+1", "t+2")),y=p_do))+
+  geom_hline(yintercept = 0)+
+  geom_boxplot(aes(color = p<0.05), outlier.shape = NA)+
+  geom_jitter(width = 0.15, color = "grey20", fill = "white",shape = 21)+
+  geom_text(aes(label = paste0("n = ",n), y = max(p_do)+.1))+
+  ylab("Correlation between hypo. DO and hypo. TP")+
+  scale_color_manual(values = c("grey50","#FB8B24"), breaks = c(F,T),labels = c("FALSE","TRUE"),drop = F, name = "p < 0.05")+
+  xlab("Hypo. DO lag")+
+  theme_bw()
+dev.off()
+```
+
+Hypo DO and VHOD (lags)
+```{r}
+do_vhod_stat = with_temp%>%
+  unique()%>%
+  group_by(LakeID)%>%
+  arrange(LakeID,Year)%>%
+  mutate(vhod_lag = lag(DO_demand_mgLd_HYPO),
+         vhod_lag2 = lag(vhod_lag),
+         vhod_lag2 = ifelse(lag(lag(Year))==Year-2,vhod_lag2,NA),
+         lag_is_last_year = ifelse(lag(Year)==(Year-1),T,F))%>%
+  filter(lag_is_last_year)%>%
+  pivot_longer(cols = c(DO_demand_mgLd_HYPO,vhod_lag,vhod_lag2))%>% #, chla_lag3
+  filter(!is.na(value),!is.na(DO_mgL_HYPO))%>%
+  group_by(name,LakeID)%>%
+  mutate(nyear = length(unique(Year)))%>%
+  arrange(LakeID)%>%
+  filter(nyear>=10,
+         #min(value)<(0.7*max(value))
+         )%>%
+  dplyr::summarize(do_vhod = cor.test(DO_mgL_HYPO,value,method = "spearman")$estimate
+    #demand_chla = pcor.test(DO_demand_mgLd_HYPO,value,Year,method = "spearman")$estimate
+            )
+
+jpeg("../../results/figures/WI/Hypo. DO vs vhod lag.jpg", width = 4, height = 3.5, res = 300, units = "in")
+do_vhod_stat%>%
+  group_by(name)%>%
+  mutate(p = wilcox.test(do_vhod)$p.value,
+         n = n(),
+         color = p<0.05,
+         color = factor(color,levels = c(T,F)))%>%
+  ggplot(aes(x=factor(name, levels = c("vhod_lag3","vhod_lag2","vhod_lag","DO_demand_mgLd_HYPO","vhod_lead","vhod_lead2"), labels = c("t-3","t-2","t-1","t","t+1", "t+2")),y=do_vhod))+
+  geom_hline(yintercept = 0)+
+  geom_boxplot(aes(color = color), outlier.shape = NA)+
+  geom_jitter(width = 0.15, color = "grey20", fill = "white",shape = 21)+
+  geom_text(aes(label = paste0("n = ",n), y = max(do_vhod)+.1))+
+  ylab("Correlation between VHOD and hypo. DO")+
+  scale_color_manual(values = c("grey50","#FB8B24"), breaks = c(F,T),labels = c("FALSE","TRUE"),drop = F, name = "p < 0.05")+
+  xlab("Hypo. VHOD lag")+
+  theme_bw()
+dev.off()
+```
+
+Mixed effects models
+```{r}
+library(MuMIn)
+library(car)
+library(lme4)
+
+cummean.na <- function(x, na.rm = T)
+{n <- length(x)
+  op <- rep(NA, n)
+  for(i in 1:n) {op[i] <- mean(x[1:i], na.rm = !!na.rm)}
+  rm(x, na.rm, n, i)
+  return(op)
+}
+
+with_lags = with_temp%>%
+  unique()%>%
+  group_by(LakeID)%>%
+  arrange(LakeID,Year)%>%
+  mutate(do_lag = lag(DO_mgL_HYPO),
+         #do_lag_anoxic = as.factor(lag(DO_mgL_HYPO)<1),
+         chla_lag = lag(Chla_ugL_EPI),
+         chla_lag2 = lag(chla_lag),
+         chla_lag2 = ifelse(lag(lag(Year))==Year-2,chla_lag2,NA),
+         chla_lag3 = lag(chla_lag2),
+         chla_lag3 = ifelse(lag(lag(lag(Year)))==Year-3,chla_lag3,NA),
+         epi_p_lag = lag(TP_ugL_EPI),
+         strat_epi_p_lag = lag(strat_TP_ugL_EPI),
+         hypo_p_lag = lag(TP_ugL_HYPO),
+         epi_n_lag = lag(TN_ugL_EPI),
+         hypo_n_lag = lag(TN_ugL_HYPO),
+         demand_lag = lag(DO_demand_mgLd_HYPO),
+         demand_mean = cummean.na(demand_lag),
+         vhod5_lag = lag(VHOD5_mgLd_HYPO),
+         summer_temp = (temp_july+temp_aug)/2,
+         spring_temp = (temp_mar+temp_apr)/2,
+         winter_temp = (temp_jan+temp_feb)/2,
+         summer_precip = (precip_july+precip_aug)/2,
+         summer_wind = (wind_july +wind_aug)/2,
+         spring_precip = (precip_mar +precip_apr)/2,
+         spring_wind = (wind_mar +wind_apr)/2,
+         winter_precip = (precip_jan +precip_feb)/2,
+         anoxic = max(DO_mgL_HYPO,na.rm = T)<1,
+         lag_is_last_year = ifelse(lag(Year)==(Year-1),T,F))%>%
+  filter(lag_is_last_year)
+
+dataset=with_lags
+row.names(dataset)=paste(dataset$LakeID, dataset$Year)
+
+data_log_chla = dataset%>%
+  mutate(Chla_ugL_EPI=log(Chla_ugL_EPI),
+         chla_lag = log(chla_lag))
+
+data_log_nuts = dataset%>%
+  mutate(Chla_ugL_EPI=log(Chla_ugL_EPI),
+         chla_lag = log(chla_lag),
+         chla_lag2 = log(chla_lag2),
+         chla_lag3 = log(chla_lag3),
+         TP_ugL_EPI = log(TP_ugL_EPI),
+         strat_TP_ugL_EPI = log(strat_TP_ugL_EPI),
+         TP_ugL_HYPO = log(TP_ugL_HYPO),
+         TN_ugL_EPI = log(TN_ugL_EPI),
+         strat_TN_ugL_EPI = log(strat_TN_ugL_EPI),
+         TN_ugL_HYPO = log(TN_ugL_HYPO),
+         epi_p_lag = log(epi_p_lag),
+         strat_epi_p_lag = log(strat_epi_p_lag),
+         hypo_p_lag = log(hypo_p_lag),
+         epi_n_lag = log(epi_n_lag),
+         hypo_n_lag = log(hypo_n_lag)) #produces NAs because of two EPI TN == 0
+
+data_no_anoxic = dataset%>%
+  filter(anoxic==F)
+
+dataset%>%
+  group_by(anoxic)%>%
+  dplyr::summarize(anoxic = length(unique(LakeID)))
+
+data_log_chla_no_anoxic = dataset%>%
+  mutate(Chla_ugL_EPI=log(Chla_ugL_EPI),
+         chla_lag = log(chla_lag))%>%
+  filter(anoxic==F)
+
+data_log_nuts_no_anoxic = data_log_nuts%>%
+  filter(anoxic==F)
+
+library(ggpubr)
+library(ggridges)
+source("lmer_functions.R")
+POSTER=F
+
+###
+responses = c("DO_demand_mgLd_HYPO")
+potential_drivers = c("Chla_ugL_EPI",
+                      "chla_lag",
+                      "strat_Temp_C_HYPO",
+                      #"DOC_mgL_HYPO", #Adding this limits data availability, making effects more difficult to detect. HOWEVER this does not come out as important
+                      "SA_vol_ratio_HYPO",
+                      "strat_buoyancy_freq_EPI" #all layers are the same
+                      #"summer_wind" #currently the same across all years
+                      )
+aic_calculator_lmer(data_log_chla,responses,potential_drivers, interaction = "+")
+selected_drivers = c("chla_lag","strat_Temp_C_HYPO")
+std_data = standardize_data(data_log_chla,responses,selected_drivers)
+all_lakes_vhod = mod_by_lake(data_log_chla,responses,selected_drivers, interaction = "+")
+mod_lmer = lmer(DO_demand_mgLd_HYPO~chla_lag+strat_Temp_C_HYPO+SA_vol_ratio_HYPO+strat_buoyancy_freq_EPI+(1|LakeID), data = std_data)
+vif(mod_lmer)
+vhod = plot_effects_lmer(mod_lmer,"VHOD (mg/L/d)", poster = POSTER)
+vhod_ridge = plot_effects_by_lake_lmer_ridge(all_lakes_vhod,var_name = "Oxygen demand (mg/L/d)",mod_lmer, poster = POSTER)
+
+###
+responses = c("DO_mgL_HYPO")
+potential_drivers = c("DO_demand_mgLd_HYPO",
+                      "spring_temp",
+                      "summer_temp",
+                      "winter_temp",
+                      "spring_wind",
+                      "Temp_C_HYPO",
+                      "DO_date_HYPO"
+                      )
+aic_calculator_lmer(data_no_anoxic,responses,potential_drivers, interaction = "+")
+selected_drivers = c("DO_demand_mgLd_HYPO","spring_temp","DO_date_HYPO")
+std_data = standardize_data(data_no_anoxic,responses,selected_drivers)
+all_lakes_do = mod_by_lake(data_no_anoxic,responses,selected_drivers, interaction = "+")
+mod_lmer = lmer(DO_mgL_HYPO~spring_temp+DO_demand_mgLd_HYPO+Temp_C_HYPO+DO_date_HYPO+(1|LakeID), data = std_data) 
+vif(mod_lmer)
+hypo_do = plot_effects_lmer(mod_lmer,"Hypolimnetic DO (mg/L)", poster = POSTER) 
+hypo_do_ridge = plot_effects_by_lake_lmer_ridge(all_lakes_do,"Hypolimnetic DO (mg/L)",mod_lmer, poster = POSTER)
+#SEGMENTED
+library(segmented)
+std_data = standardize_data(dataset,responses,selected_drivers) #Add in anoxic lakes here to make a point
+mod_seg = lme(DO_mgL_HYPO~spring_temp+DO_demand_mgLd_HYPO+Temp_C_HYPO+DO_date_HYPO, random=~1|LakeID, data = std_data) #for some reason lmer doesn't work here
+seglme = segmented.lme(mod_seg, random=list(LakeID=pdDiag(~1)), seg.Z = ~DO_demand_mgLd_HYPO, psi = 1)
+#G0 is the breakpoint, U is added to the coefficient for DO_demand_mgLd_HYPO to get the slope after the breakpoint
+#To "un-standardize" the breakpoint:
+dataset_filt = dataset%>%
+  ungroup()%>%
+  dplyr::select(all_of(c(selected_drivers,responses,"LakeID")))%>%
+  filter(if_all(where(is.numeric),is.finite))
+mu_do = mean(dataset_filt$DO_demand_mgLd_HYPO)
+sd_do = sd(dataset_filt$DO_demand_mgLd_HYPO)
+break_untrans = round(unique(seglme$fixed.eta.psi)*sd_do+mu_do,1)
+#To plot
+effects = data.frame(seglme$lme.fit.noG$coefficients$fixed)
+colnames(effects) = "Estimate"
+effects$Var = row.names(effects)
+confs = data.frame(t(confint(seglme)))
+confs$Var = row.names(confs)
+effects2 = effects%>%
+  left_join(confs)%>%
+  rename(xmin = X2.5.,
+         xmax = X97.5.)%>%
+  mutate(radius = Estimate-xmin,
+         radius2 = xmax-Estimate)
+effects2$Estimate[effects2$Var=="U"]=effects2$Estimate[effects2$Var=="DO_demand_mgLd_HYPO"]+effects2$Estimate[effects2$Var=="U"]
+effects2$xmin[effects2$Var=="U"]=effects2$Estimate[effects2$Var=="U"]-sqrt(effects2$radius[effects2$Var=="DO_demand_mgLd_HYPO"]^2+effects2$radius[effects2$Var=="U"]^2)
+effects2$xmax[effects2$Var=="U"]=effects2$Estimate[effects2$Var=="U"]+sqrt(effects2$radius2[effects2$Var=="DO_demand_mgLd_HYPO"]^2+effects2$radius2[effects2$Var=="U"]^2)
+if(POSTER){
+  effects2$Var[effects2$Var=="U"]=paste0("VHOD\n(> ",break_untrans," mg/L/d)")
+  effects2$Var[effects2$Var=="DO_mgL_HYPO"]=paste0("VHOD\n(< ",break_untrans," mg/L/d)")
+} else {
+  effects2$Var[effects2$Var=="U"]=paste0("VHOD where\nVHOD > ",break_untrans," mg/L/d")
+  effects2$Var[effects2$Var=="DO_demand_mgLd_HYPO"]=paste0("VHOD where\nVHOD < ",break_untrans," mg/L/d")
+}
+
+
+hypo_do_piecewise = effects2%>%
+  filter(!Var=="(Intercept)")%>%
+  mutate(Var = if(POSTER){renamer_poster(Var)}else{renamer(Var)},
+         Var = factor(Var, levels = Var[order(abs(Estimate))]))%>%
+  ggplot(aes(y = Var,x=Estimate))+
+  geom_point()+
+  geom_errorbar(aes(xmin=xmin, xmax = xmax),width=0.1)+
+  geom_vline(xintercept = 0)+
+  ggtitle("Hypolimnetic DO (mg/L)",
+          subtitle = paste0("n = ",mod_seg$dims$N," lake-years; n = ",mod_seg$dims$ngrps[1]," lakes"))+
+  theme_bw()+
+  theme(axis.title.y = element_blank())
+ggsave(paste0("../../results/figures/MLR/Parameter estimate-Hypolimnetic DO (mgL)-piecewise.jpeg"),
+       width = 4, height = 4, units = "in")
+
+dataset%>%
+  ggplot(aes(x = DO_demand_mgLd_HYPO,y=DO_mgL_HYPO,color=anoxic))+
+  geom_vline(xintercept = 0.09)+
+  geom_point(alpha=0.2)+
+  theme_bw()+
+  scale_color_manual(values = c("lightblue","red"), name = "Consistently\nanoxic (y/n)")+
+  xlab("Oxygen demand (mg/L/d)")+
+  ylab("Late-summer oxygen (mg/L)")
+ggsave(paste0("../../results/figures/DO_VHOD.jpeg"),
+       width = 6, height = 4, units = "in")
+
+###
+responses = c("VHOD5_mgLd_HYPO")
+potential_drivers = c("Chla_ugL_EPI",
+                      "chla_lag",
+                      #"DOC_mgL_HYPO",
+                      "spring_temp",
+                      "strat_Temp_C_HYPO",
+                      "strat_buoyancy_freq_EPI"
+                      )
+aic_calculator_lmer(data_log_chla,responses,potential_drivers, interaction = "+")
+selected_drivers = c("chla_lag")
+std_data = standardize_data(data_log_chla,responses,selected_drivers)
+all_lakes_vhod5 = mod_by_lake(data_log_chla,responses,selected_drivers, interaction = "+")
+mod_lmer = lmer(VHOD5_mgLd_HYPO~chla_lag+(1|LakeID), data = std_data) 
+#No need to run VIF here because there is only one driver
+confint(mod_lmer)
+summary(mod_lmer)
+plot_effects_lmer(mod_lmer,"Temperature-corrected oxygen demand") 
+plot_effects_by_lake_lmer(all_lakes_vhod5,"Temperature-corrected oxygen demand",mod_lmer)
+plot_effects_by_lake_lmer_ridge(all_lakes_vhod5,"Temperature-corrected oxygen demand",mod_lmer)
+
+###
+responses = c("strat_TP_ugL_EPI")
+potential_drivers = c("TP_ugL_HYPO",
+                      "hypo_p_lag",
+                      "epi_p_lag",
+                      "spring_precip",
+                      "summer_precip",
+                      "winter_precip",
+                      #"summer_wind", currently the same across all dates at a lake
+                      "strat_buoyancy_freq_EPI",
+                      "strat_TP_date_EPI"
+                      )
+aic_calculator_lmer(data_log_nuts,responses,potential_drivers, interaction = "+")
+selected_drivers = c("hypo_p_lag","epi_p_lag")
+std_data = standardize_data(data_log_nuts,responses,selected_drivers)
+all_lakes_epiP = mod_by_lake(data_log_nuts,responses,selected_drivers, interaction = "+")
+mod_lmer = lmer(strat_TP_ugL_EPI~hypo_p_lag+epi_p_lag+(1|LakeID), data = std_data)
+vif(mod_lmer)
+epi_p = plot_effects_lmer(mod_lmer,"Epilimnetic TP (µg/L)", poster = POSTER) 
+epi_p_ridge = plot_effects_by_lake_lmer_ridge(all_lakes_epiP,"Epilimnetic TP (µg/L)",mod_lmer, poster = POSTER)
+
+
+###
+responses = c("TP_ugL_HYPO")
+potential_drivers = c("DO_mgL_HYPO",
+                      "strat_TP_ugL_EPI",
+                      "strat_buoyancy_freq_EPI",
+                      "strat_Temp_C_HYPO",
+                      "spring_precip",
+                      "summer_precip",
+                      "winter_precip",
+                      "TP_date_HYPO"
+                      )
+aic_calculator_lmer(data_log_nuts,responses,potential_drivers, interaction = "+")
+selected_drivers = c("DO_mgL_HYPO","strat_TP_ugL_EPI","winter_precip")
+std_data = standardize_data(data_log_nuts,responses,selected_drivers)
+all_lakes_hypoP = mod_by_lake(data_log_nuts,responses,selected_drivers, interaction = "+")
+mod_lmer = lmer(TP_ugL_HYPO~DO_mgL_HYPO+strat_TP_ugL_EPI+winter_precip+(1|LakeID), data = std_data) 
+vif(mod_lmer)
+hypo_p = plot_effects_lmer(mod_lmer,"Hypolimnetic TP (µg/L)", poster = POSTER) 
+hypo_p_ridge = plot_effects_by_lake_lmer_ridge(all_lakes_hypoP,"Hypolimnetic TP (µg/L)",mod_lmer, poster = POSTER)
+#SEGMENTED
+library(segmented)
+mod_seg = lme(TP_ugL_HYPO~DO_mgL_HYPO+strat_TP_ugL_EPI+winter_precip, random=~1|LakeID, data = std_data) #for some reason lmer doesn't work here
+seglme = segmented.lme(mod_seg, random=list(LakeID=pdDiag(~1)), seg.Z = ~DO_mgL_HYPO, psi = 1)
+#G0 is the breakpoint, U is added to the coefficient for DO_mgL_HYPO to get the slope after the breakpoint
+#To "un-standardize" the breakpoint:
+dataset_filt = dataset%>%
+  ungroup()%>%
+  dplyr::select(all_of(c(selected_drivers,responses,"LakeID")))%>%
+  filter(if_all(where(is.numeric),is.finite))
+mu_do = mean(dataset_filt$DO_mgL_HYPO)
+sd_do = sd(dataset_filt$DO_mgL_HYPO)
+break_untrans = round(unique(seglme$fixed.eta.psi)*sd_do+mu_do,1)
+#To plot
+effects = data.frame(seglme$lme.fit.noG$coefficients$fixed)
+colnames(effects) = "Estimate"
+effects$Var = row.names(effects)
+confs = data.frame(t(confint(seglme)))
+confs$Var = row.names(confs)
+effects2 = effects%>%
+  left_join(confs)%>%
+  rename(xmin = X2.5.,
+         xmax = X97.5.)%>%
+  mutate(radius = Estimate-xmin,
+         radius2 = xmax-Estimate)
+effects2$Estimate[effects2$Var=="U"]=effects2$Estimate[effects2$Var=="DO_mgL_HYPO"]+effects2$Estimate[effects2$Var=="U"]
+effects2$xmin[effects2$Var=="U"]=effects2$Estimate[effects2$Var=="U"]-sqrt(effects2$radius[effects2$Var=="DO_mgL_HYPO"]^2+effects2$radius[effects2$Var=="U"]^2)
+effects2$xmax[effects2$Var=="U"]=effects2$Estimate[effects2$Var=="U"]+sqrt(effects2$radius2[effects2$Var=="DO_mgL_HYPO"]^2+effects2$radius2[effects2$Var=="U"]^2)
+if(POSTER){
+  effects2$Var[effects2$Var=="U"]=paste0("Bottom-water oxygen\n(> ",break_untrans," mg/L)")
+  effects2$Var[effects2$Var=="DO_mgL_HYPO"]=paste0("Bottom-water oxygen\n(< ",break_untrans," mg/L)")
+} else {
+  effects2$Var[effects2$Var=="U"]=paste0("Hypo. DO where\nDO > ",break_untrans," mg/L")
+  effects2$Var[effects2$Var=="DO_mgL_HYPO"]=paste0("Hypo. DO where\nDO < ",break_untrans," mg/L")
+}
+
+
+hypo_p_breakpoint = effects2%>%
+  filter(!Var=="(Intercept)")%>%
+  mutate(Var = if(POSTER){renamer_poster(Var)}else{renamer(Var)},
+         Var = factor(Var, levels = Var[order(abs(Estimate))]))%>%
+  ggplot(aes(y = Var,x=Estimate))+
+  geom_point()+
+  geom_errorbar(aes(xmin=xmin, xmax = xmax),width=0.1)+
+  geom_vline(xintercept = 0)+
+  ggtitle("Hypolimnetic TP (µg/L)",
+          subtitle = paste0("n = ",mod_seg$dims$N," lake-years; n = ",mod_seg$dims$ngrps[1]," lakes"))+
+  theme_bw()+
+  theme(axis.title.y = element_blank())
+ggsave(paste0("../../results/figures/MLR/Parameter estimate-Hypolimnetic TP (µgL)-piecewise.jpeg"),
+       width = 4, height = 4, units = "in")
+
+status = data_log_nuts%>%
+  group_by(LakeID)%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  dplyr::summarize(status = ifelse(max(DO_mgL_HYPO,na.rm = T)<1, "Anoxic\n(max. DO < 1)",
+                                   ifelse(min(DO_mgL_HYPO, na.rm = T)<1,"Variable",
+                                          "Oxic\n(min. DO > 1)")))
+
+effects = all_lakes_hypoP%>%
+  pivot_longer(!c(LakeID,n,R2))%>%
+  filter(!name%in%c("Intercept"))
+order = effects%>%
+  mutate(Var = renamer(name))%>%
+  group_by(Var)%>%
+  dplyr::summarize(median = abs(median(value,na.rm = T)))%>%
+  mutate(Var = factor(Var, levels = Var[order(median)]))
+p2 = effects%>%
+  mutate(Var = renamer(name),
+         Var = factor(Var, levels = levels(order$Var)))%>%
+  left_join(status)%>%
+  ggplot(aes(y = Var,x=value))+
+  geom_vline(xintercept = 0, color = "grey40",linewidth = 1.2)+
+  geom_density_ridges(
+    quantile_lines = TRUE,
+    jittered_points = TRUE,
+    alpha = 1,
+    fill = "grey90",
+    point_alpha = 1,
+    aes(point_fill = status),
+    point_shape = 21,
+    scale=0.9)+
+  ggtitle("Within lakes",
+          subtitle = paste0("n = ",length(unique(effects$LakeID))," lakes"))+
+  theme_bw()+
+  xlab("Estimate")+
+  theme(axis.title.y = element_blank(),
+        legend.position = "none")+
+  facet_wrap(~status)
+
+###
+responses = c("Chla_ugL_EPI")
+potential_drivers = c("strat_TP_ugL_EPI",
+                      "strat_TN_ugL_EPI", 
+                      "spring_temp",
+                      "summer_temp",
+                      "Chla_date_EPI")
+aic_calculator_lmer(data_log_nuts,responses,potential_drivers, interaction = "+")
+selected_drivers = c("spring_temp","strat_TP_ugL_EPI")
+std_data = standardize_data(data_log_nuts,responses,selected_drivers)
+all_lakes_chla = mod_by_lake(data_log_nuts,responses,selected_drivers, interaction = "+")
+mod_lmer = lmer(Chla_ugL_EPI~spring_temp+strat_TP_ugL_EPI+(1|LakeID), data = std_data) 
+summary(mod_lmer)
+vif(mod_lmer)
+epi_chla = plot_effects_lmer(mod_lmer,"Epilimnetic chl-a (µg/L)", poster = POSTER) 
+epi_chla_ridge = plot_effects_by_lake_lmer_ridge(all_lakes_chla,"Epilimnetic chl-a (µg/L)",mod_lmer, poster = POSTER)
+```
+
+Combined figures
+```{r}
+library(gtable)
+library(gridExtra)
+library(grid)
+library(ggh4x)
+
+g1 <- ggplotGrob(
+  hypo_p  +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank())+
+                   force_panelsizes(rows = unit(3*5/6, "cm")))
+g2 <- ggplotGrob(
+  epi_p   +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank())+
+                   force_panelsizes(rows = unit(7*5/6, "cm")))
+g3 <- ggplotGrob(
+  epi_chla+theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9))+
+                   force_panelsizes(rows = unit(2*5/6, "cm")))
+g4 <- ggplotGrob(
+  vhod    +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank())+
+                   force_panelsizes(rows = unit(4*5/6, "cm")))
+g5 <- ggplotGrob(
+  hypo_do +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9))+
+                   force_panelsizes(rows = unit(4*5/6, "cm")))
+maxWidth <- unit.pmax(g1$widths,g2$widths,g3$widths,g4$widths,g5$widths)
+g1$widths <- maxWidth
+g2$widths <- maxWidth
+g3$widths <- maxWidth
+g4$widths <- maxWidth
+g5$widths <- maxWidth
+
+layout <- rbind(c(1, 4),
+                c(1, 4),
+                c(1, 4),
+                c(1, 4),
+                c(1, 4),
+                c(2, 4),
+                c(2, 5),
+                c(2, 5),
+                c(2, 5),
+                c(2, 5),
+                c(2, 5),
+                c(2, 5),
+                c(2, NA),
+                c(3, NA),
+                c(3, NA),
+                c(3, NA),
+                c(3, NA),
+                c(3, NA))
+jpeg("../../results/figures/MLR-lmer/Parameter estimate-all-custom layout.jpeg", width = 7, height = 6.5, res = 300, units = "in")
+grid.arrange(g1,g2,g3,g4,g5,layout_matrix=layout)
+dev.off()
+
+g1 <- ggplotGrob(hypo_do +
+                   ggtitle("Bottom-water oxygen")+
+                   theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank()))
+g2 <- ggplotGrob(hypo_p  +
+                   ggtitle("Bottom-water phosphorus")+
+                   theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank()))
+g3 <- ggplotGrob(epi_p   +
+                   ggtitle("Surface phosphorus")+
+                   theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9)))
+g4 <- ggplotGrob(epi_chla+
+                   ggtitle("Surface phytoplankton")+
+                   theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank()))
+g5 <- ggplotGrob(vhod    +
+                   ggtitle("Oxygen consumption")+
+                   theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9)))
+maxWidth <- unit.pmax(g1$widths,g2$widths,g3$widths,g4$widths,g5$widths)
+g1$widths <- maxWidth
+g2$widths <- maxWidth
+g3$widths <- maxWidth
+g4$widths <- maxWidth
+g5$widths <- maxWidth
+g4.5 = rbind(g4,g5)
+layout <- rbind(c(1, 2),
+                c(1, 2),
+                c(1, 2),
+                c(1, 2),
+                c(3, 2),
+                c(3, 4.5),
+                c(3, 4.5),
+                c(3, 4.5),
+                c(3, 4.5),
+                c(3, 4.5))
+
+jpeg("../../results/figures/MLR-lmer/Parameter estimate-all-custom layout poster.jpeg", width = 6.6, height = 6.5, res = 600, units = "in")
+grid.arrange(g1,g2,g3,g4.5, layout_matrix=layout)
+dev.off()
+
+g1 <- ggplotGrob(hypo_p_ridge   
+                 #+ggtitle("Bottom-water phosphorus")
+                 +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank())+
+                   force_panelsizes(rows = unit(3, "cm")))
+g2 <- ggplotGrob(epi_p_ridge  
+                 #+ggtitle("Surface phosphorus")
+                 +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank())+
+                   force_panelsizes(rows = unit(7, "cm")))
+g3 <- ggplotGrob(epi_chla_ridge
+                 #+ggtitle("Surface cholorphyll-a")
+                 +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9),
+                         axis.title.x = element_blank())+
+                   force_panelsizes(rows = unit(2, "cm")))
+g4 <- ggplotGrob(vhod_ridge    
+                 #+ggtitle("Oxygen demand")
+                 +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9))+
+                   force_panelsizes(rows = unit(4, "cm")))
+g5 <- ggplotGrob(hypo_do_ridge 
+                 #+ggtitle("Bottom-water oxygen")
+                 +theme(plot.title = element_text(size = 10),
+                         plot.subtitle = element_text(size = 9))+
+                   force_panelsizes(rows = unit(4, "cm")))
+maxWidth <- unit.pmax(g1$widths,g2$widths,g3$widths,g4$widths,g5$widths)
+g1$widths <- maxWidth
+g2$widths <- maxWidth
+g3$widths <- maxWidth
+g4$widths <- maxWidth
+g5$widths <- maxWidth
+layout <- rbind(c(1, 2),
+                c(1, 2),
+                c(1, 2),
+                c(1, 2),
+                c(1, 2),
+                c(3, 2),
+                c(3, 2),
+                c(3, 2),
+                c(3, 2),
+                c(4, 5),
+                c(4, 5),
+                c(4, 5),
+                c(4, 5),
+                c(4, 5),
+                c(4, 5))
+jpeg("../../results/figures/MLR-lmer/Parameter estimate-all-ridge.jpeg", width = 6, height = 6, res = 300, units = "in")
+grid.arrange(g1,g2,g3,g4,g5, layout_matrix=layout)
+dev.off()
+```
+
+Looking at consistency
+```{r}
+complete = all_lakes_chla%>%
+  dplyr::select(strat_TP_ugL_EPI,LakeID)%>%
+  left_join(all_lakes_epiP%>%
+              dplyr::select(strat_TP_ugL_HYPO,LakeID))%>%
+  left_join(all_lakes_hypoP%>%
+              dplyr::select(DO_mgL_HYPO,LakeID))%>%
+  left_join(all_lakes_do%>%
+              dplyr::select(DO_demand_mgLd_HYPO,LakeID))%>%
+  left_join(all_lakes_vhod5%>%
+              dplyr::select(chla_lag,LakeID))%>%
+  #dplyr::select(-LakeID)%>%
+  na.omit()
+
+cor(complete[c(1,3:6)])
+
+plot_comp = complete%>%
+  #left_join(lat_long, by = c("LakeID"))%>%
+  #left_join(shape)%>%
+  dplyr::select(-LakeID)
+
+#Work this up into a real figure?
+pairs(plot_comp)
+
+complete%>%
+  mutate(P_chla = ifelse(strat_TP_ugL_EPI>0,"expected","unexpected"),
+         chla_vhod = ifelse(chla_lag>0,"expected","unexpected"),
+         P_P = ifelse(strat_TP_ugL_HYPO>0,"expected","unexpected"),
+         do_P = ifelse(DO_mgL_HYPO<0,"expected","unexpected"),
+         vhod_do = ifelse(DO_demand_mgLd_HYPO<0,"expected","unexpected")
+         )%>%
+  pivot_longer(cols = c(P_chla,chla_vhod,P_P,do_P,vhod_do))%>%
+  mutate(name = factor(name, 
+                       levels = c("chla_vhod","vhod_do","do_P","P_P","P_chla"),
+                       labels = c("chl-a on VHOD",
+                                  "VHOD on DO",
+                                  "DO on hypo TP",
+                                  "hypo TP on epi TP",
+                                  "epi TP on chl-a"
+                                  )))%>%
+  ggplot(aes(y = name, x = LakeID, fill = value))+
+  geom_tile(color = "grey20")+
+  labs(fill = "")+
+  ylab("Sign of the the effect of:")+
+  scale_fill_manual(values = c("skyblue","grey20"))+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+incomplete = all_lakes_chla%>%
+  dplyr::select(strat_TP_ugL_EPI,LakeID)%>%
+  full_join(all_lakes_epiP%>%
+              dplyr::select(TP_ugL_HYPO, hypo_p_lag,LakeID))%>%
+  full_join(all_lakes_hypoP%>%
+              dplyr::select(DO_mgL_HYPO,LakeID))%>%
+  full_join(all_lakes_do%>%
+              dplyr::select(DO_demand_mgLd_HYPO,spring_temp,LakeID))%>%
+  full_join(all_lakes_vhod%>%
+              dplyr::select(chla_lag,LakeID))
+
+hydro = read.csv("../../Anoxia Data Submission/_databases/hydrolakes_full.csv")
+
+incomplete%>%
+  pivot_longer(cols = c("strat_TP_ugL_EPI","strat_TP_ugL_HYPO","DO_mgL_HYPO","DO_demand_mgLd_HYPO","chla_lag"), values_to = "coef", names_to = "var")%>%
+  left_join(lat_long, by = c("LakeID"))%>%
+  ggplot(aes(x = SurfaceArea_ha, y = coef))+
+  geom_point()+
+  scale_x_log10()+
+  geom_smooth(method = "lm")+
+  facet_wrap(~var,scales = "free_y")+
+  theme_bw()
+
+incomplete%>%
+  pivot_longer(cols = c("strat_TP_ugL_EPI","strat_TP_ugL_HYPO","DO_mgL_HYPO","DO_demand_mgLd_HYPO","chla_lag"), values_to = "coef", names_to = "var")%>%
+  left_join(lat_long, by = c("LakeID"))%>%
+  ggplot(aes(x = MeanDepth_m, y = coef))+
+  geom_point()+
+  scale_x_log10()+
+  geom_smooth(method = "lm")+
+  facet_wrap(~var,scales = "free_y")+
+  theme_bw()
+
+library(ggpmisc)
+jpeg("../../results/figures/Residence time summary.jpg", width = 6, height = 4, res = 300, units = "in")
+incomplete%>%
+  pivot_longer(cols = c("strat_TP_ugL_EPI","strat_TP_ugL_HYPO","DO_mgL_HYPO","DO_demand_mgLd_HYPO","chla_lag"), values_to = "coef", names_to = "var")%>%
+  mutate(var = factor(var,
+                      levels = c("DO_mgL_HYPO",
+                                 "strat_TP_ugL_HYPO",
+                                 "strat_TP_ugL_EPI",
+                                 "chla_lag",
+                                 "DO_demand_mgLd_HYPO"),
+                      labels = c("A:  Hypo. DO vs. hypo. TP",
+                                 "B:  Hypo. TP vs epi. TP",
+                                 "C:  Epi. TP vs. epi. chl-a", 
+                                 "D:  Epi. chl-a (t-1) vs. VHOD",
+                                 "E:  VHOD vs hypo. DO"
+                                 )))%>%
+  left_join(hydro, by = c("LakeID"="ID"))%>%
+  ggplot(aes(x = Res_time, y = coef))+
+  geom_point()+
+  geom_hline(yintercept = 0)+
+  scale_x_log10()+
+  ylab("Coefficient")+
+  xlab("Residence time (days)")+
+  geom_smooth(method = "lm")+
+  facet_wrap(~var, scales = "free_y")+
+  theme_bw()+
+  stat_poly_eq(aes(label = paste("atop(", after_stat(adj.rr.label), ",", paste0('p = ', after_stat(p.value)),")", sep = "")), 
+               #formula = formula, 
+               parse = TRUE)
+dev.off()
+
+incomplete%>%
+  pivot_longer(cols = c("strat_TP_ugL_EPI","strat_TP_ugL_HYPO","DO_mgL_HYPO","DO_demand_mgLd_HYPO","chla_lag"), values_to = "coef", names_to = "var")%>%
+  left_join(hydro, by = c("LakeID"="ID"))%>%
+  filter(Lake_type %in% c(1,2))%>%
+  ggplot(aes(x = as.factor(Lake_type), y = coef))+
+  geom_boxplot()+
+  geom_jitter()+
+  stat_compare_means()+
+  facet_wrap(~var,scales = "free_y")+
+  theme_bw()
+
+jpeg("../../results/figures/Depth and size.jpg", width = 4, height = 4, res = 300, units = "in")
+incomplete%>%
+  pivot_longer(cols = c("strat_TP_ugL_EPI","strat_TP_ugL_HYPO","DO_mgL_HYPO","DO_demand_mgLd_HYPO","chla_lag"), values_to = "coef", names_to = "var")%>%
+  left_join(lat_long)%>%
+  mutate(SA_class = ifelse(SurfaceArea_ha>100,"Large","Small"))%>%
+  filter(!is.na(SA_class))%>%
+  ggplot(aes(x = MeanDepth_m, y = coef, color = SA_class))+
+  geom_hline(yintercept = 0)+
+  geom_point()+
+  ylab("Coefficient")+
+  geom_smooth(method = "lm")+
+  scale_x_log10()+
+  facet_grid(rows = vars(var), cols = vars(SA_class),scales = "free")+
+  theme_bw()
+dev.off()
+
+means = with_temp%>%
+  group_by(LakeID)%>%
+  dplyr::summarize(mean_do = mean(DO_mgL_HYPO,na.rm=T),
+                   median_do = median(DO_mgL_HYPO,na.rm=T),
+                   mean_log_do = mean(log(DO_mgL_HYPO),na.rm=T),
+                   sd_do = sd(DO_mgL_HYPO,na.rm=T),
+                   sd_log_do = sd(log(DO_mgL_HYPO),na.rm=T),
+                   cv_log_do = unique(sd_log_do)/unique(mean_log_do),
+                   max_do = max(DO_mgL_HYPO, na.rm=T),
+                   min_do = min(DO_mgL_HYPO, na.rm = T),
+                   cv_do = unique(sd_do)/unique(mean_do),
+                   mean_hypo_p = mean(TP_ugL_HYPO,na.rm=T),
+                   log_sd_hypo_p = log(sd(TP_ugL_HYPO,na.rm=T)),
+                   cv_hypo_p = sd(TP_ugL_HYPO,na.rm=T)/unique(mean_hypo_p),
+                   mean_epi_p = mean(TP_ugL_EPI,na.rm=T),
+                   sd_epi_p = sd(TP_ugL_EPI,na.rm=T),
+                   cv_epi_p = unique(sd_epi_p)/unique(mean_epi_p),
+                   mean_demand = mean(DO_demand_mgLd_HYPO,na.rm=T),
+                   sd_demand = sd(DO_demand_mgLd_HYPO,na.rm=T),
+                   cv_demand = unique(sd_demand)/unique(mean_demand),
+                   mean_chla = mean(Chla_ugL_EPI,na.rm=T),
+                   sd_chla = sd(Chla_ugL_EPI,na.rm=T),
+                   cv_chla = unique(sd_chla)/unique(mean_chla),
+                   mean_sa_vol = mean(SA_vol_ratio_HYPO),
+                   mean_hypo_temp = mean(Temp_C_HYPO,na.rm=T),
+                   mean_epi_temp = mean(Temp_C_EPI,na.rm=T),
+                   mean_air_temp = mean(mean_temp, na.rm=T),
+                   mean_bf = mean(strat_buoyancy_freq_EPI,na.rm=T))
+
+jpeg("../../results/figures/Oxygen and res time.jpg", width = 4, height = 4, res = 300, units = "in")
+incomplete%>%
+  pivot_longer(cols = c("strat_TP_ugL_EPI","strat_TP_ugL_HYPO","DO_mgL_HYPO","DO_demand_mgLd_HYPO","chla_lag"), values_to = "coef", names_to = "var")%>%
+  left_join(lat_long)%>%
+  left_join(hydro%>%dplyr::select(ID,Shore_dev,Res_time,Wshd_area,Lake_type), by = c("LakeID"="ID"))%>%
+  left_join(means)%>%
+  #filter(MeanDepth_m<15)%>%
+  mutate(oxy_class = ifelse(min_do>1,"Oxic",ifelse(max_do<1,"Anoxic","Variable")),
+         SA_depth = SurfaceArea_ha/MaximumDepth_m)%>%
+  filter(!is.na(oxy_class))%>%
+  ggplot(aes(x = Res_time, y = coef))+
+  geom_hline(yintercept = 0)+
+  geom_point()+
+  ylab("Coefficient")+
+  geom_smooth(method = "lm")+
+  scale_x_log10()+
+  facet_grid(rows = vars(var), cols = vars(oxy_class),scales = "free")+
+  theme_bw()
+dev.off()
+
+jpeg("../../results/figures/BF.jpg", width = 4, height = 4, res = 300, units = "in")
+incomplete%>%
+  pivot_longer(cols = c("strat_TP_ugL_EPI","strat_TP_ugL_HYPO","DO_mgL_HYPO","DO_demand_mgLd_HYPO","chla_lag"), values_to = "coef", names_to = "var")%>%
+  left_join(lat_long)%>%
+  left_join(hydro%>%dplyr::select(ID,Shore_dev,Res_time,Wshd_area,Lake_type), by = c("LakeID"="ID"))%>%
+  left_join(means)%>%
+  #filter(MeanDepth_m<15)%>%
+  mutate(oxy_class = ifelse(min_do>1,"Oxic",ifelse(max_do<1,"Anoxic","Variable")),
+         SA_depth = SurfaceArea_ha/MaximumDepth_m)%>%
+  filter(!is.na(oxy_class))%>%
+  ggplot(aes(x = mean_bf, y = coef))+
+  geom_hline(yintercept = 0)+
+  geom_point()+
+  ylab("Coefficient")+
+  geom_smooth(method = "lm")+
+  facet_wrap(~var,scales = "free")+
+  theme_bw()
+dev.off()
+
+for_mlr = incomplete%>%
+  left_join(lat_long, by = c("LakeID"))%>%
+  left_join(shape)%>%
+  left_join(means)%>%
+  left_join(hydro%>%
+              dplyr::select(ID,Shore_dev,Res_time,Wshd_area,Lake_type), by = c("LakeID"="ID"))%>%
+  mutate(log_MaximumDepth_m = log(MaximumDepth_m),
+         log_SurfaceArea_ha = log(SurfaceArea_ha),
+         log_MeanDepth_m = log(MeanDepth_m),
+         log_Res_time= log(Res_time),
+         log_epiP = log(mean_epi_p),
+         log_hypoP = log(mean_hypo_p),
+         SA_depth = log_SurfaceArea_ha/log_MaximumDepth_m,
+         Lake_type = factor(Lake_type))#%>%
+  #filter(VD<4,
+  #       MaximumDepth_m<100)
+
+potential_drivers = c("log_MeanDepth_m",
+                      "log_MaximumDepth_m",
+                      "log_SurfaceArea_ha",
+                      "log_Res_time",
+                      "Elevation_m",
+                      "log_hypoP"
+                      )
+responses = c("hypo_p_lag")
+aic_calculator_onevar(for_mlr,responses,potential_drivers)
+summary(lm(TP_ugL_HYPO~log_hypoP, data = for_mlr)) #Take home: BF
+
+#jpeg("../../results/figures/Effect of TP on TP.jpg", width = 4, height = 4, res = 300, units = "in")
+#tp = for_mlr%>%
+#  filter(!is.na(strat_TP_ugL_HYPO))%>%
+#  ggplot(aes(x=mean_bf,y=strat_TP_ugL_HYPO))+
+#  geom_point()+
+#  geom_hline(yintercept = 0)+
+#  geom_smooth(method = "lm")+
+#  theme_bw()+
+#  ylab("Coefficient for the effect of hypo. TP on epi TP")+
+#  xlab("Mean buoyancy frequency\nat the thermocline (1/s)")
+#tp
+#dev.off()
+
+potential_drivers = c("log_MeanDepth_m",
+                      "log_MaximumDepth_m",
+                      "log_SurfaceArea_ha",
+                      "log_Res_time",
+                      "Elevation_m",
+                      "log_epiP")
+responses = c("strat_TP_ugL_EPI")
+aic_calculator_onevar(for_mlr,responses,potential_drivers)
+summary(lm(strat_TP_ugL_EPI~log_epiP, data = for_mlr)) #Take home: epi P has a positive relationship
+
+jpeg("../../results/figures/Effect of TP on chl-a.jpg", width = 4, height = 4, res = 300, units = "in")
+chla = for_mlr%>%
+  filter(!is.na(strat_TP_ugL_EPI))%>%
+  ggplot(aes(x=mean_epi_p,y=strat_TP_ugL_EPI))+
+  geom_point()+
+  scale_x_log10()+
+  geom_hline(yintercept = 0)+
+  geom_smooth(method = "lm")+
+  theme_bw()+
+  ylab("Coefficient for the effect of epi. TP on chl-a")+
+  xlab("Mean epilimnetic TP (µg/L)")
+chla
+dev.off()
+
+potential_drivers = c("log_MeanDepth_m",
+                      "log_MaximumDepth_m",
+                      "log_SurfaceArea_ha",
+                      "log_Res_time",
+                      "Elevation_m",
+                      "mean_do"
+                      )
+responses = c("DO_mgL_HYPO")
+aic_calculator_onevar(for_mlr,responses,potential_drivers)
+summary(lm(DO_mgL_HYPO~log_Res_time, data = for_mlr)) #Take home: residence time is important, less of a relationship when DO is high or not variable
+
+jpeg("../../results/figures/Effect of DO on TP.jpg", width = 4.5, height = 4, res = 300, units = "in")
+for_mlr%>%
+  mutate(oxy_class = ifelse(min_do>1,"Oxic\n(min. DO > 1 mg/L)",ifelse(max_do<1,"Anoxic\n(max. DO < 1 mg/L)","Variable")),
+         oxy_class = factor(oxy_class, levels = c("Anoxic\n(max. DO < 1 mg/L)","Variable","Oxic\n(min. DO > 1 mg/L)")))%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  ggplot(aes(x=oxy_class,y=DO_mgL_HYPO))+
+  #scale_x_log10()+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(width=0.2)+
+  geom_hline(yintercept = 0)+
+  theme_bw()+
+  stat_compare_means(label.y = 0.9)+
+  ylab("Coefficient for the effect of hypo. DO on hypo TP")+
+  xlab("Oxygen status")+
+  theme(axis.title.x = element_blank())
+dev.off()
+
+for_mlr%>%
+  mutate(oxy_class = ifelse(min_do>1,"Oxic\n(min. DO > 1 mg/L)",ifelse(max_do<1,"Anoxic\n(max. DO < 1 mg/L)","Variable")),
+         oxy_class = factor(oxy_class, levels = c("Anoxic\n(max. DO < 1 mg/L)","Variable","Oxic\n(min. DO > 1 mg/L)")),
+         expected = ifelse(DO_mgL_HYPO<0,"expected","unexpected"))%>%
+  filter(!is.na(expected))%>%
+  group_by(oxy_class)%>%
+  mutate(n = n())%>%
+  group_by(oxy_class,expected)%>%
+  summarize(pct = n()/unique(n))%>%
+  ggplot(aes(x=oxy_class,y = pct, color=expected))+
+  geom_col()+
+  theme_bw()+
+  #stat_compare_means()+
+  ylab("Percent of lakes showing the expected\nrelationship between hypo. DO and hypo. TP")+
+  xlab("Oxygen status")+
+  theme(axis.title.x = element_blank())
+
+potential_drivers = c("log_MeanDepth_m",
+                      "log_MaximumDepth_m",
+                      "log_SurfaceArea_ha",
+                      "log_Res_time",
+                      "Elevation_m",
+                      "mean_demand"
+                      )
+responses = c("DO_demand_mgLd_HYPO")
+aic_calculator_onevar(for_mlr,responses,potential_drivers)
+summary(lm(DO_demand_mgLd_HYPO~log_SurfaceArea_ha, data = for_mlr)) #Take home: surface area is most important
+
+jpeg("../../results/figures/Effect of VHOD on DO.jpg", width = 4, height = 4, res = 300, units = "in")
+demand = for_mlr%>%
+  filter(!is.na(DO_demand_mgLd_HYPO))%>%
+  ggplot(aes(x=SurfaceArea_ha,y=DO_demand_mgLd_HYPO))+
+  geom_point()+
+  scale_x_log10()+
+  geom_hline(yintercept = 0)+
+  geom_smooth(method = "lm")+
+  theme_bw()+
+  ylab("Coefficient for the effect of VHOD on DO")+
+  xlab("Surface area (ha)")
+demand
+dev.off()
+
+potential_drivers = c("log_MeanDepth_m",
+                      "log_MaximumDepth_m",
+                      "log_SurfaceArea_ha",
+                      "log_Res_time",
+                      "Elevation_m",
+                      "mean_chla")
+responses = c("chla_lag")
+for_mlr%>%
+  filter(!is.na(log_MeanDepth_m),
+         !is.na(log_MaximumDepth_m),
+         !is.na(log_SurfaceArea_ha),
+         !is.na(log_Res_time),
+         !is.na(Elevation_m),
+         !is.na(mean_bf),
+         !is.na(mean_chla),
+         !is.na(chla_lag))
+aic_calculator_onevar(for_mlr,responses,potential_drivers)
+summary(lm(chla_lag~log_MeanDepth_m, data = for_mlr)) #Take home: no significant differences
+
+jpeg("../../results/figures/Driver analysis.jpg", width = 6, height = 4.5, res = 300, units = "in")
+ggarrange(chla+stat_poly_eq(label.x = .2),demand+stat_poly_eq(label.x = .2), nrow= 1, labels = "AUTO")
+dev.off()
+```
+
+```{r}
+total = with_temp%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  group_by(LakeID)%>%
+  filter(length(unique(Year))>=10)%>%
+  ungroup()%>%
+  summarize(length(unique(LakeID)))
+
+anoxic = with_temp%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  group_by(LakeID)%>%
+  filter(length(unique(Year))>=10,
+         max(DO_mgL_HYPO)<1)%>%
+  ungroup()
+length(unique(anoxic$LakeID))
+
+oxic = with_temp%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  group_by(LakeID)%>%
+  filter(length(unique(Year))>=10,
+         min(DO_mgL_HYPO)>1)%>%
+  ungroup()
+length(unique(oxic$LakeID))
+
+switch = with_temp%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  group_by(LakeID)%>%
+  filter(length(unique(Year))>=10,
+         min(DO_mgL_HYPO)<1,
+         max(DO_mgL_HYPO)>1
+         )%>%
+  ungroup()
+length(unique(switch$LakeID))
+
+anoxic_start = switch%>%
+  group_by(LakeID)%>%
+  arrange(Year)%>%
+  filter(first(DO_mgL_HYPO<1))
+length(unique(anoxic_start$LakeID))
+
+oxic_start = switch%>%
+  group_by(LakeID)%>%
+  arrange(Year)%>%
+  filter(first(DO_mgL_HYPO>1))
+length(unique(oxic_start$LakeID))
+
+status_data = with_temp%>%
+  group_by(LakeID)%>%
+  arrange(LakeID,Year)%>%
+  filter(!is.na(DO_mgL_HYPO))%>%
+  filter(sum(DO_mgL_HYPO<1)>=1,
+         #length(unique(Year))>=10
+         )%>%
+  mutate(anoxic_date = first(Year[DO_mgL_HYPO<1]),
+         first_date = first(Year),
+         end_date = last(Year),
+         status = ifelse(Year>anoxic_date,"post-anoxia","pre-anoxia"),
+         status = ifelse(Year==anoxic_date,"first anoxia",status),
+         status = factor(status,levels = c("pre-anoxia","first anoxia","post-anoxia")))%>%
+  #filter((anoxic_date-first_date)>5,
+  #       !end_date==anoxic_date,
+  #       )%>%
+  filter(abs(Year-anoxic_date)<=5)%>%
+  filter(sum(status=="pre-anoxia")>=5,
+         sum(status=="post-anoxia")>0,
+         sum(status=="first anoxia")>0
+         )%>%
+  mutate(oxic = as.factor(DO_mgL_HYPO>1))
+
+length(unique(status_data$LakeID))
+
+jpeg("../../results/figures/anoxia_vhod_time.jpg",res=300,width=10, height=20,units="in")
+status_data%>%
+  filter(!is.na(DO_demand_mgLd_HYPO))%>%
+  ggplot(aes(x=Year,y=DO_demand_mgLd_HYPO, color = status))+
+  geom_point()+
+  facet_wrap(~LakeID, scales = "free")
+dev.off()
+
+jpeg("../../results/figures/anoxia_time.jpg",res=300,width=10, height=20,units="in")
+status_data%>%
+  ggplot(aes(x=Year,y=DO_mgL_HYPO, color = status))+
+  geom_point()+
+  facet_wrap(~LakeID, scales = "free")
+dev.off()
+
+#Data resolution is quite bad for chla and tp
+
+jpeg("../../results/figures/anoxia_status.jpg",res=300,width=3, height=3,units="in")
+status_data%>%
+  ggplot(aes(x=status,y=DO_demand_mgLd_HYPO))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(width=.2, alpha = 0.2)+
+  theme_bw()+
+  stat_compare_means()+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none")+
+  ylab("VHOD (mg/L/d)")
+dev.off()
+
+status_data%>%
+  ggplot(aes(x=status,y=DO_mgL_HYPO))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(width=.2, alpha = 0.2)+
+  scale_color_viridis()+
+  theme_bw()+
+  stat_compare_means()+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none")+
+  ylab("DO (mg/L)")
+
+status_data%>%
+  ggplot(aes(x=status,y=TP_ugL_HYPO))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(width=.2, alpha = 0.2)+
+  theme_bw()+
+  stat_compare_means()+
+  scale_y_log10()+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none")+
+  ylab("TP (µg/L)")
+
+status_data%>%
+  ggplot(aes(x=status,y=Chla_ugL_EPI))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(width=.2, alpha = 0.2)+
+  theme_bw()+
+  stat_compare_means()+
+  scale_y_log10()+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none")+
+  ylab("Chla (µg/L)")
+
+status_data_demand = status_data%>%
+  filter(!is.na(DO_demand_mgLd_HYPO),
+         abs(Year-anoxic_date)<=1)%>%
+  dplyr::select(DO_demand_mgLd_HYPO,status,LakeID)%>%
+  group_by(LakeID,status)%>%
+  dplyr::summarise(DO_demand_mgLd_HYPO=mean(DO_demand_mgLd_HYPO,na.rm = T))%>%
+  mutate(n = n())%>%
+  filter(n==3)
+status_data_demand%>%
+  ggplot(aes(x=status,y=DO_demand_mgLd_HYPO))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(width=.2, alpha = 0.2)+
+  theme_bw()+
+  stat_compare_means()+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none")+
+  ylab("VHOD (mg/L/d)")
+friedman.test(y = status_data_demand$DO_demand_mgLd_HYPO, groups = status_data_demand$status, blocks = status_data_demand$LakeID)
+TukeyHSD(aov(lm(DO_demand_mgLd_HYPO~status+LakeID, data=status_data)))
+status_ttest_demand = status_data%>%
+  filter(!is.na(DO_demand_mgLd_HYPO),
+         abs(Year-anoxic_date)<=1)%>%
+  dplyr::select(DO_demand_mgLd_HYPO,status,LakeID)%>%
+  group_by(LakeID,status)%>%
+  dplyr::summarise(DO_demand_mgLd_HYPO=mean(DO_demand_mgLd_HYPO,na.rm = T))%>%
+  mutate(n = n())%>%
+  filter(n==3,
+         status!="first anoxia")%>%
+  mutate(status = droplevels(status))%>%
+  pivot_wider(names_from = status, values_from = DO_demand_mgLd_HYPO)
+t.test(status_ttest_demand$`pre-anoxia`,status_ttest_demand$`post-anoxia`)
+
+anova_result = anova(lm(DO_mgL_HYPO~status+LakeID, data=status_data))
+summary(aov(lm(DO_mgL_HYPO~status*LakeID, data=status_data)))
+friedman.test(y = status_data$DO_mgL_HYPO, groups = status_data$status, blocks = status_data$LakeID)
+TukeyHSD(aov(lm(DO_mgL_HYPO~status+LakeID, data=status_data)))
+
+anova_result = anova(lm(TP_ugL_HYPO~status+LakeID, data=status_data))
+summary(aov(lm(TP_ugL_HYPO~status*LakeID, data=status_data)))
+friedman.test(y = status_data$TP_ugL_HYPO, groups = status_data$status, blocks = status_data$LakeID)
+TukeyHSD(aov(lm(TP_ugL_HYPO~status+LakeID, data=status_data)))
+
+anova_result = anova(lm(TP_ugL_EPI~status+LakeID, data=status_data))
+summary(aov(lm(TP_ugL_EPI~status*LakeID, data=status_data)))
+friedman.test(y = status_data$TP_ugL_EPI, groups = status_data$status, blocks = status_data$LakeID)
+TukeyHSD(aov(lm(TP_ugL_EPI~status+LakeID, data=status_data)))
+
+anova_result = anova(lm(Chla_ugL_EPI~status+LakeID, data=status_data))
+summary(aov(lm(Chla_ugL_EPI~status+LakeID, data=status_data)))
+friedman.test(y = status_data$Chla_ugL_EPI, groups = status_data$status, blocks = status_data$LakeID)
+TukeyHSD(aov(lm(Chla_ugL_EPI~status+LakeID, data=status_data)))
+status_data$oxic
+```
+
