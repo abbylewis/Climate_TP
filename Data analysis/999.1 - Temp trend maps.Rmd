@@ -39,7 +39,7 @@ sen_slope_climate <- function(df,var){
       filt = df%>%
         filter(LakeID==lake)
       if(length(unique(filt$Year))>=5){
-        sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F)$data$res2
+        sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F, silent = T)$data$res2
         output$trend[output$LakeID==lake]<-sen$slope[1]
         output$sig[output$LakeID==lake]<-sen$p[1]
         output$min_year[output$LakeID==lake]<-min(year(filt$date))
@@ -62,19 +62,23 @@ sen_slope_months <- function(df, var, months = 1:12) {
     }
   }
   
-  return(output)
   # Save output only if all months were run
   if(length(months)==12){
-    write.csv(output, paste0("Compiled data/", 
+    write.csv(output, paste0("../Compiled data/", 
                              deparse(substitute(df)), "_",
-                             deparse(substitute(var)), ".csv"
-                             ))
+                             deparse(substitute(var)), ".csv"), 
+              row.names = F)
   }
+  
+  return(output)
 }
 
 climate_narr_trends <- sen_slope_months(climate_narr, "Temp_C")
+write.csv(climate_narr_trends, "../Compiled data/climate_narr_Temp_C.csv", row.names = F)
 climate_jra55_trends <- sen_slope_months(climate_jra55, "Temp_C")
+write.csv(climate_jra55_trends, "../Compiled data/climate_jra55_Temp_C.csv", row.names = F)
 climate_era5_trends <- sen_slope_months(climate_era5, "Temp_C")
+write.csv(climate_era5_trends, "../Compiled data/climate_era5_Temp_C.csv", row.names = F)
 ```
 
 Lots of code here that could be deleted since I switched to facets
@@ -183,8 +187,6 @@ all_trends <- climate_narr_trends%>%
                         levels = unique(Month), 
                         labels = month.name[unique(Month)],
                         ordered = T))
-
-all_trends
 min = min(all_trends$trend)*10
 max = max(all_trends$trend)*10
 abs_max = max(abs(c(min,max)))
@@ -210,8 +212,13 @@ us_map = ggplot(data = states) +
         axis.text = element_blank(),
         axis.ticks = element_blank(),
         plot.margin = margin(0, 0, 0, 0, "cm"),
-        panel.background = element_rect(fill = "grey80"))+
+        panel.background = element_rect(fill = "grey80"),
+        legend.position = "bottom")+
   facet_grid(rows = vars(Model), cols = vars(Month))
+jpeg("../Figures/temperature_trends.jpeg", width = 8, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
 us_map
 ```
 
