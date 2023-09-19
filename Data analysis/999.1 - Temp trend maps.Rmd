@@ -74,11 +74,11 @@ sen_slope_months <- function(df, var, months = 1:12) {
 }
 
 climate_narr_trends <- sen_slope_months(climate_narr, "Temp_C")
-write.csv(climate_narr_trends, "../Compiled data/climate_narr_Temp_C.csv", row.names = F)
+#write.csv(climate_narr_trends, "../Compiled data/climate_narr_Temp_C.csv", row.names = F)
 climate_jra55_trends <- sen_slope_months(climate_jra55, "Temp_C")
-write.csv(climate_jra55_trends, "../Compiled data/climate_jra55_Temp_C.csv", row.names = F)
+#write.csv(climate_jra55_trends, "../Compiled data/climate_jra55_Temp_C.csv", row.names = F)
 climate_era5_trends <- sen_slope_months(climate_era5, "Temp_C")
-write.csv(climate_era5_trends, "../Compiled data/climate_era5_Temp_C.csv", row.names = F)
+#write.csv(climate_era5_trends, "../Compiled data/climate_era5_Temp_C.csv", row.names = F)
 ```
 
 Lots of code here that could be deleted since I switched to facets
@@ -185,7 +185,7 @@ all_trends <- climate_narr_trends%>%
   full_join(climate_jra55_trends %>% mutate(Model = "JRA55")) %>%
   mutate(Month = factor(Month, 
                         levels = unique(Month), 
-                        labels = month.name[unique(Month)],
+                        labels = month.abb[unique(Month)],
                         ordered = T))
 min = min(all_trends$trend)*10
 max = max(all_trends$trend)*10
@@ -220,5 +220,50 @@ us_map
 dev.off()
 
 us_map
+
+hists = all_trends%>%
+  mutate(trend = trend*10)%>%
+  ggplot(aes(x = trend, fill = Model))+
+  geom_density(alpha = 1, linewidth = 0.1)+
+  theme_bw()+
+  coord_cartesian(ylim=c(0, 10))+
+  scale_x_continuous(breaks = c(-0.8,0,0.8), name = "Air temperature trend (ºC/decade)")+
+  geom_vline(xintercept = 0)+
+  scale_fill_viridis_d()+
+  facet_grid(cols = vars(Month))
+
+library(patchwork)
+jpeg("../Figures/temperature_trends_hist.jpeg", width = 10, height = 5, units = "in", res = 300)
+wrap_plots(us_map+theme(legend.position = "right"), hists, ncol = 1, heights = c(2,1))
+dev.off()
+
+hists2 = all_trends%>%
+  mutate(trend = trend*10)%>%
+  ggplot(aes(x = trend, fill = Model))+
+  geom_density()+
+  theme_bw()+
+  scale_x_continuous(breaks = c(-0.9,0,0.9), name = "Air temperature trend (ºC/decade)")+
+  geom_vline(xintercept = 0)+
+  scale_fill_viridis_d()+
+  facet_wrap(~Month)
+
+jpeg("../Figures/temperature_trends_hist_only.jpeg", width = 6, height = 5, units = "in", res = 300)
+hists2
+dev.off()
+
+
+hists3 = all_trends%>%
+  mutate(trend = trend*10)%>%
+  ggplot(aes(x = trend, fill = Model))+
+  geom_density()+
+  theme_bw()+
+  scale_x_continuous(breaks = c(-0.9,0,0.9), name = "Air temperature trend (ºC/decade)")+
+  geom_vline(xintercept = 0)+
+  scale_fill_viridis_d()+
+  facet_grid(cols = vars(Month), rows = vars(Model), scales = "free_y")
+
+jpeg("../Figures/temperature_trends_hist_all.jpeg", width = 10, height = 5, units = "in", res = 300)
+wrap_plots(us_map+theme(legend.position = "right"), hists3, ncol = 1)
+dev.off()
 ```
 

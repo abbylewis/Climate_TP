@@ -677,102 +677,6 @@ do_anomaly_stat$demand_anom
 
 AIR TEMP VS HYPO DO
 ```{r}
-library(ppcor)
-many_lake_temp_sum = with_temp%>%
-  pivot_longer(cols = contains("temp", ignore.case = F), names_to = "mon")%>%
-  filter(!mon=="mean_temp")%>%
-  mutate(mon = month(as.Date(paste0("2022-",substr(mon,6,8),"-01"), format = "%Y-%b-%d")),
-         Year = ifelse(mon>=9,Year+1,Year))
-
-# DO
-many_lake_stat = many_lake_temp_sum%>%
-  filter(!is.na(DO_mgL_HYPO),!is.na(mon), !is.na(value))%>%
-  group_by(LakeID)%>%
-  mutate(hypoxic = ifelse(max(DO_mgL_HYPO)<1,"yes","no"))%>%
-  filter(hypoxic=="no")%>%
-  group_by(LakeID, mon)%>%
-  mutate(nyear = length(unique(Year)))%>%
-  filter(nyear>=10,
-         #max(value)-min(value)>2
-         )%>%
-  dplyr::summarize(do_temp = pcor.test(DO_mgL_HYPO,value,Year,method = "spearman")$estimate,
-            )
-
-labs = c("Sep","Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug")
-
-anova_res = aov(do_temp~as.factor(mon),data=many_lake_stat)
-summary(anova_res)
-tukey = TukeyHSD(anova_res)
-library(multcompView)
-cld = multcompLetters4(anova_res,tukey)$`as.factor(mon)`$Letters
-cld_df = data.frame(cld = cld, mon = names(cld))%>%
-  mutate(mon = factor(as.numeric(mon), levels = c(9:12,1:8), labels = labs))
-
-
-library(MASS)
-jpeg("../../results/figures/WI/DO and temp by month.jpg", width = 6, height = 4, res = 300, units = "in")
-do_temp_data = many_lake_stat%>%
-  group_by(mon)%>%
-  mutate(p = wilcox.test(do_temp)$p.value,
-         n = n(),
-         mon = factor(mon, levels = c(9:12,1:8),labels = labs))
-do_temp = do_temp_data%>%
-  ggplot(aes(x=mon, y = do_temp))+
-  geom_boxplot(aes(color=p<0.05))+
-  geom_text(aes(x = mon, label = cld, y = 1.08),
-            data = cld_df)+
-  #geom_text(aes(label = paste0("n = ",n), y = max(do_temp)))+ #n is the same across all
-  geom_hline(yintercept=0)+
-  ylim(-1,1.08)+
-  xlab("Air temp. month")+
-  ylab(paste0("Correlation with\nlate-summer DO\n(n = ",unique(do_temp_data$n),")"))+
-  theme_bw()+
-  scale_color_manual(values = c("grey50","#FB8B24"))+
-  theme(axis.text.x = element_text(hjust = ifelse(levels(do_temp_data$mon) == "N:     Sep\nS:     Mar", .8, .5)))
-do_temp
-dev.off()
-
-jpeg("../../results/figures/WI/DO and temp by month_lines.jpg", width = 6, height = 4, res = 300, units = "in")
-do_temp_data = many_lake_stat%>%
-  group_by(mon)%>%
-  mutate(p = wilcox.test(do_temp)$p.value,
-         n = n(),
-         mon = factor(mon, levels = c(9:12,1:8),labels = labs))
-do_temp = do_temp_data%>%
-  left_join(lat_long)%>%
-  ggplot(aes(x=mon, y = do_temp))+
-  geom_point(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
-  geom_line(alpha=0.5, aes(color = Latitude_DD, group = LakeID))+
-  #geom_text(aes(x = mon, label = cld, y = 1.08),
-  #          data = cld_df)+
-  geom_hline(yintercept=0)+
-  ylim(-1,1.08)+
-  xlab("Air temp. month")+
-  ylab(paste0("Correlation with\nlate-summer DO\n(n = ",unique(do_temp_data$n),")"))+
-  theme_bw()+
-  scale_color_viridis_c()
-do_temp
-dev.off()
-
-for_states <- do_temp_data%>%
-  filter(mon=="Apr")%>%
-  left_join(lat_long)
-states <- ne_states(returnclass = "sf",country = "United States of America")
-us_map = ggplot(data = states) +
-  geom_sf() +
-  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
-  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = do_temp),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
-  theme_bw()+
-  annotation_north_arrow(location = "bl", which_north = "true", 
-      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
-      style = north_arrow_fancy_orienteering) +
-  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
-    legend.box.background = element_rect(fill = "white", color = "white"))+
-  scale_fill_viridis(name = "Correlation between\nDO and April temp",limits = c(-1,1), option = "H")+
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank())
-us_map
-
 summer_do_points_midwest = with_temp%>%
   group_by(LakeID)%>%
   filter(max(DO_mgL_HYPO)>1)%>%
@@ -912,6 +816,34 @@ with_temp%>%
          !is.na(DOC_mgL_EPI))%>%
   group_by(LakeID)%>%
   summarise(n_year = length(unique(Year)))
+```
+
+AIR TEMP VS HYPO DO - JRA55 and NARR
+```{r}
+source("plot_monthly_correlation.R")
+source("plot_monthly_correlation_hypo_temp.R")
+source("plot_monthly_correlation_map.R")
+do_temp_era5 <- plot_monthly_correlation(with_temp,"ERA5")
+temp_temp_era5 <- plot_monthly_correlation_hypo_temp(with_temp,"ERA5")
+do_temp_era5_map <- plot_monthly_correlation_map(with_temp,"ERA5")
+do_temp_jra55 <- plot_monthly_correlation(with_temp,"JRA55")
+temp_temp_jra55 <- plot_monthly_correlation_hypo_temp(with_temp,"JRA55")
+do_temp_jra55_map <- plot_monthly_correlation_map(with_temp,"JRA55")
+do_temp_narr <- plot_monthly_correlation(with_temp,"NARR")
+temp_temp_narr <- plot_monthly_correlation_hypo_temp(with_temp,"NARR")
+do_temp_narr_map <- plot_monthly_correlation_map(with_temp,"NARR")
+
+jpeg("../Figures/DO and temp by month - all.jpg", width = 6, height = 6, res = 300, units = "in")
+ggarrange(do_temp_era5, do_temp_jra55, do_temp_narr, ncol = 1)
+dev.off()
+
+jpeg("../Figures/Hypo and air temp by month - all.jpg", width = 6, height = 6, res = 300, units = "in")
+ggarrange(temp_temp_era5, temp_temp_jra55, temp_temp_narr, ncol = 1)
+dev.off()
+
+jpeg("../Figures/DO and temp April maps- all.jpg", width = 6, height = 6, res = 300, units = "in")
+ggarrange(do_temp_era5_map, do_temp_jra55_map, do_temp_narr_map)
+dev.off()
 ```
 
 ```{r}
