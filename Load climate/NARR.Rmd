@@ -1,0 +1,112 @@
+---
+title: "NARR"
+author: "Abby Lewis"
+date: "2023-09-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Sys.setenv(TZ='UTC')
+library(tidyverse)
+```
+
+Initial data download (only necessary once)
+```{r}
+#source("NARRdownloadNetCDF.R")
+#NARRdownloadNetCDF(endYear = 2023,
+#                   destination = "../External data/NARR",
+#                   variable = "air.2m")
+```
+
+```{r}
+#Read and format our lake metadata
+lakes <- read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/fadd3eaa25b5fdd1fc4efba70e660579") 
+lakes_format <- lakes %>%
+  filter(StateOrProvince == "Wisconsin")%>%
+  dplyr::select(LakeID,Longitude_DD,Latitude_DD) %>%
+  rename(Lon=Longitude_DD,Lat=Latitude_DD)%>%
+  filter(!is.na(Lon),
+         !is.na(Lat))
+projection = "+proj=lcc +lat_1=50 +lat_2=50 +lat_0=50 +lon_0=-107.0 +x_0=5632642.22547 +y_0=4612545.65137"
+
+#Read NC temp
+folder <- '../External data/NARR'
+files <- list.files(folder)
+output <- data.frame(LakeID = character(),
+                     Month = numeric(),
+                     Year = numeric(),
+                     Temp_C = numeric(),
+                     Lon = numeric(),
+                     Lat = numeric())
+for (file in files) {
+  mynetcdf_t <- paste0('../External data/NARR/',file)
+  ncFile_t <- nc_open(mynetcdf_t)
+  #Get the lats/lons using ncvar_get
+  Lon <- ncvar_get(ncFile_t,"lon")
+  Lon <- ifelse(Lon > 180, -(360 - Lon), Lon)
+  Lat <- ncvar_get(ncFile_t,"lat")
+  time <- ncvar_get(ncFile_t,"time")
+  t_mean <- ncvar_get(ncFile_t,"air")
+  fillvalue <- ncatt_get(ncFile_t, "air","missing_value") 
+  t_mean[t_mean == fillvalue$value] <- NA
+  days <- day(as.Date("1800-01-01")+hours(time))
+  months <- month(as.Date("1800-01-01")+hours(time))
+  years <- year(as.Date("1800-01-01")+hours(time))
+  print(unique(years))
+  
+  # try to project lat and lon
+  lonlat <- list(Lon, Lat)
+  projected <- proj4::project(lonlat, proj=projection, silent = T)
+  x_vals <- projected$x
+  y_vals <- projected$y
+  
+  #Loop through lakes and add temp data based on lat/lon
+  combined_t_df <- data.frame(LakeID = rep(lakes_format$LakeID, each = length(time)),
+                              Day = rep(days,nrow(lakes_format)),
+                              Month = rep(months,nrow(lakes_format)),
+                              Year = rep(years,nrow(lakes_format)),
+                              Temp_C = as.numeric(NA),
+                              Lon = as.numeric(NA),
+                              Lat = as.numeric(NA)
+                              )
+  for(i in 1:nrow(lakes_format)){
+    # Funky projection: dealing with that here
+    xy <- list(lakes_format[i,]$Lon, lakes_format[i,]$Lat)
+    projected <- proj4::project(xy, proj=projection, silent = T)
+    point_x <- projected$x
+    point_y <- projected$y
+    
+    delta_x <- x_vals - point_x
+    delta_y <- y_vals - point_y
+    
+    distance <- (delta_x^2 + delta_y^2) ^ 0.5
+    min_dist <- min(distance)
+    min_loc <- which(distance <= min_dist)
+    
+    lon <- Lon[min_loc]
+    lat <- Lat[min_loc]  
+    
+    col_num <- ceiling(min_loc /nrow(Lon))
+    row_num <- min_loc - ((col_num-1) * nrow(Lon))
+    
+    if(!is.na(col_num)&!is.na(row_num)){
+      t_vector <- t_mean[row_num, col_num ,]
+      combined_t_df$Temp_C[combined_t_df$LakeID==lakes_format[i,]$LakeID]<- t_vector-273.15
+      combined_t_df$Lon[combined_t_df$LakeID==lakes_format[i,]$LakeID]<- lon
+      combined_t_df$Lat[combined_t_df$LakeID==lakes_format[i,]$LakeID]<- lat
+    }
+  }
+  combined_t_df <- combined_t_df%>%
+    mutate(Temp_C = trunc(Temp_C*100000)/100000)
+  
+  output <- rbind(output,combined_t_df)
+}
+
+output = output%>%
+  group_by(LakeID, Year, Month, Lon, Lat)%>%
+  summarize(Temp_C = mean(Temp_C, na.rm = T))
+
+write.csv(output,"../Compiled data/historical_temp_output_narr.csv", row.names = F)
+```
+

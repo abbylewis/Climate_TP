@@ -116,9 +116,50 @@ precip_sum = precip%>%
             Lat = unique(Lat),
             Lon = unique(Lon))
 
+climate_narr = read.csv("../Compiled data/historical_temp_output_narr.csv")
+climate_sum_narr = climate_narr%>%
+  mutate(Month = ifelse(Lat<0,Month+6,Month),
+         Year = ifelse(Month>12,Year+1,Year),
+         Month = ifelse(Month>12,Month-12,Month))%>%
+  group_by(LakeID, Year)%>%
+  dplyr::summarize(narr_mean_temp = mean(Temp_C),
+            narr_temp_jan = Temp_C[Month==1],
+            narr_temp_feb = Temp_C[Month==2],
+            narr_temp_mar = Temp_C[Month==3],
+            narr_temp_apr = Temp_C[Month==4],
+            narr_temp_may = Temp_C[Month==5],
+            narr_temp_jun = Temp_C[Month==6],
+            narr_temp_july = Temp_C[Month==7],
+            narr_temp_aug = Temp_C[Month==8],
+            narr_temp_sep = Temp_C[Month==9],
+            narr_temp_oct = Temp_C[Month==10],
+            narr_temp_nov = Temp_C[Month==11],
+            narr_temp_dec = Temp_C[Month==12])
+
+climate_jra55 = read.csv("../Compiled data/historical_temp_output_jra55.csv")
+climate_sum_jra55 = climate_jra55%>%
+  mutate(Month = ifelse(Lat<0,Month+6,Month),
+         Year = ifelse(Month>12,Year+1,Year),
+         Month = ifelse(Month>12,Month-12,Month))%>%
+  group_by(LakeID, Year)%>%
+  dplyr::summarize(jra55_mean_temp = mean(Temp_C),
+            jra55_temp_jan = Temp_C[Month==1],
+            jra55_temp_feb = Temp_C[Month==2],
+            jra55_temp_mar = Temp_C[Month==3],
+            jra55_temp_apr = Temp_C[Month==4],
+            jra55_temp_may = Temp_C[Month==5],
+            jra55_temp_jun = Temp_C[Month==6],
+            jra55_temp_july = Temp_C[Month==7],
+            jra55_temp_aug = Temp_C[Month==8],
+            jra55_temp_sep = Temp_C[Month==9],
+            jra55_temp_oct = Temp_C[Month==10],
+            jra55_temp_nov = Temp_C[Month==11],
+            jra55_temp_dec = Temp_C[Month==12])
 
 with_temp_all = summer_avgs_wide%>%
   left_join(climate_sum)%>%
+  left_join(climate_sum_narr)%>%
+  left_join(climate_sum_jra55)%>%
   left_join(precip_sum)
 
 possibly_unstratified = with_temp_all%>%
@@ -174,6 +215,42 @@ temp_trends = climate%>%
   filter(StateOrProvince %in% c("Wisconsin", "Minnesota"))
 
 temp_trends%>%
+  rename(Latitude = Lat)%>%
+  ggplot(aes(x = Month, y = trend*10, color = Latitude))+
+  geom_hline(yintercept = 0)+
+  geom_jitter()+
+  scale_color_viridis()+
+  ylab("Air temperature trend (ºC/decade)\n1990-2022")+
+  theme_bw()
+
+temp_trends_narr = climate_narr%>%
+  filter(Year>=1990)%>%
+  group_by(Lon,Lat,Year,Month,LakeID)%>%
+  dplyr::summarise(Temp_C = unique(Temp_C))%>%
+  group_by(Lon,Lat,Month,LakeID)%>%
+  dplyr::summarise(trend = lm(Temp_C~Year)$coefficients[2])%>%
+  left_join(lat_long)%>%
+  filter(StateOrProvince %in% c("Wisconsin", "Minnesota"))
+
+temp_trends_narr%>%
+  rename(Latitude = Lat)%>%
+  ggplot(aes(x = Month, y = trend*10, color = Latitude))+
+  geom_hline(yintercept = 0)+
+  geom_jitter()+
+  scale_color_viridis()+
+  ylab("Air temperature trend (ºC/decade)\n1990-2022")+
+  theme_bw()
+
+temp_trends_jra55 = climate_jra55%>%
+  filter(Year>=1990)%>%
+  group_by(Lon,Lat,Year,Month,LakeID)%>%
+  dplyr::summarise(Temp_C = unique(Temp_C))%>%
+  group_by(Lon,Lat,Month,LakeID)%>%
+  dplyr::summarise(trend = lm(Temp_C~Year)$coefficients[2])%>%
+  left_join(lat_long)%>%
+  filter(StateOrProvince %in% c("Wisconsin", "Minnesota"))
+
+temp_trends_jra55%>%
   rename(Latitude = Lat)%>%
   ggplot(aes(x = Month, y = trend*10, color = Latitude))+
   geom_hline(yintercept = 0)+
@@ -266,7 +343,7 @@ library(ggspatial)
 min = min(temp_trends$trend)*10
 max = max(temp_trends$trend)*10
 for_states <- temp_trends%>%
-  filter(Month==4)
+  filter(Month==12)
 states <- ne_states(returnclass = "sf",country = "United States of America")
 us_map = ggplot(data = states) +
   geom_sf() +
@@ -415,6 +492,28 @@ us_map = ggplot(data = states) +
   theme(plot.margin = margin(0, 0, 0, 0, "cm"),
     legend.box.background = element_rect(fill = "white", color = "white"))+
   scale_fill_viridis(name = "Epi. chl-a (µg/L)",limits = c(min,max), option = "H", trans = "log10")+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+us_map
+```
+
+```{r}
+min = min(temp_trends$trend)*10
+max = max(temp_trends$trend)*10
+for_states <- temp_trends%>%
+  filter(Month==4)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+us_map = ggplot(data = states) +
+  geom_sf() +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, aes(Longitude_DD, Latitude_DD, fill = trend*10),shape = 21, color = "white", size = 2.8, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  annotation_north_arrow(location = "bl", which_north = "true", 
+      pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+      style = north_arrow_fancy_orienteering) +
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+    legend.box.background = element_rect(fill = "white", color = "white"))+
+  scale_fill_viridis(name = "April air \ntemperature trend\n(ºC/decade)",limits = c(min,max), option = "H")+
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank())
 us_map
