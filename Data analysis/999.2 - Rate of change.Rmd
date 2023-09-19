@@ -1,0 +1,21 @@
+---
+title: "Rate of change"
+author: "Abby Lewis"
+date: "2023-09-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(slider)
+```
+
+```{r}
+narr <- read.csv("../Compiled data/historical_temp_output_narr_daily.csv")
+
+narr%>%
+  group_by(LakeID, Year) %>%
+  arrange(Day) %>%
+  mutate(Rolling_Temp_C = slider::slide_dbl(Temp_C, mean, .before = 3, .after = 3))
+```
+

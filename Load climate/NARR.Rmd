@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 Sys.setenv(TZ='UTC')
 library(tidyverse)
+library(ncdf4)
 ```
 
 Initial data download (only necessary once)
@@ -103,10 +104,12 @@ for (file in files) {
   output <- rbind(output,combined_t_df)
 }
 
-output = output%>%
+write.csv(output,"../Compiled data/historical_temp_output_narr_daily.csv", row.names = F)
+
+monthly <- output%>%
   group_by(LakeID, Year, Month, Lon, Lat)%>%
   summarize(Temp_C = mean(Temp_C, na.rm = T))
 
-write.csv(output,"../Compiled data/historical_temp_output_narr.csv", row.names = F)
+write.csv(monthly,"../Compiled data/historical_temp_output_narr.csv", row.names = F)
 ```
 
