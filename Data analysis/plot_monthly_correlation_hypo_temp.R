@@ -44,7 +44,7 @@ plot_monthly_correlation_hypo_temp <- function(with_temp, model) {
            mon = factor(mon, levels = c(9:12,1:8),labels = labs))
   temp_temp = temp_temp_data%>%
     ggplot(aes(x=mon, y = temp_temp))+
-    geom_boxplot(aes(color=p<0.05))+
+    geom_boxplot(aes(color=p<0.001))+
     geom_text(aes(x = mon, label = cld, y = 1.08),
               data = cld_df)+
     #geom_text(aes(label = paste0("n = ",n), y = max(do_temp)))+ #n is the same across all

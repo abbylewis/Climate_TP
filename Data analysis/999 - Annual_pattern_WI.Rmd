@@ -823,15 +823,19 @@ AIR TEMP VS HYPO DO - JRA55 and NARR
 source("plot_monthly_correlation.R")
 source("plot_monthly_correlation_hypo_temp.R")
 source("plot_monthly_correlation_map.R")
-do_temp_era5 <- plot_monthly_correlation(with_temp,"ERA5")
-temp_temp_era5 <- plot_monthly_correlation_hypo_temp(with_temp,"ERA5")
-do_temp_era5_map <- plot_monthly_correlation_map(with_temp,"ERA5")
-do_temp_jra55 <- plot_monthly_correlation(with_temp,"JRA55")
-temp_temp_jra55 <- plot_monthly_correlation_hypo_temp(with_temp,"JRA55")
-do_temp_jra55_map <- plot_monthly_correlation_map(with_temp,"JRA55")
-do_temp_narr <- plot_monthly_correlation(with_temp,"NARR")
-temp_temp_narr <- plot_monthly_correlation_hypo_temp(with_temp,"NARR")
-do_temp_narr_map <- plot_monthly_correlation_map(with_temp,"NARR")
+
+with_temp_wi <- with_temp%>%
+  filter(StateOrProvince=="Wisconsin")
+
+do_temp_era5 <- plot_monthly_correlation(with_temp_wi,"ERA5")
+temp_temp_era5 <- plot_monthly_correlation_hypo_temp(with_temp_wi,"ERA5")
+do_temp_era5_map <- plot_monthly_correlation_map(with_temp_wi,"ERA5")
+do_temp_jra55 <- plot_monthly_correlation(with_temp_wi,"JRA55")
+temp_temp_jra55 <- plot_monthly_correlation_hypo_temp(with_temp_wi,"JRA55")
+do_temp_jra55_map <- plot_monthly_correlation_map(with_temp_wi,"JRA55")
+do_temp_narr <- plot_monthly_correlation(with_temp_wi,"NARR")
+temp_temp_narr <- plot_monthly_correlation_hypo_temp(with_temp_wi,"NARR")
+do_temp_narr_map <- plot_monthly_correlation_map(with_temp_wi,"NARR")
 
 jpeg("../Figures/DO and temp by month - all.jpg", width = 6, height = 6, res = 300, units = "in")
 ggarrange(do_temp_era5, do_temp_jra55, do_temp_narr, ncol = 1)
