@@ -34,6 +34,7 @@ strat_avgs = read.csv("../Compiled data//stratified_averages.csv")%>%
          strat_buoyancy_freq = buoyancy_freq)
 
 bathy_anox= read.csv("../Compiled data/anoxic_bathymetry.csv")
+mixing <- read.csv("../Compiled data/NARR_mixing_stats.csv")
 
 spring = read.csv("../Compiled data/spring_averages_wi.csv")%>%
   dplyr::select(LakeID,Layer,Year,Temp_C,DO_mgL)%>%
@@ -160,7 +161,8 @@ with_temp_all = summer_avgs_wide%>%
   left_join(climate_sum)%>%
   left_join(climate_sum_narr)%>%
   left_join(climate_sum_jra55)%>%
-  left_join(precip_sum)
+  left_join(precip_sum)%>%
+  left_join(mixing)
 
 possibly_unstratified = with_temp_all%>%
   group_by(LakeID)%>%
@@ -203,6 +205,12 @@ with_temp%>%
   ggplot(aes(x = Year, y = DO_mgL_HYPO, group = LakeID))+
   geom_line()
 ```
+```{r}
+with_temp%>%
+  
+```
+
+
 
 ```{r}
 temp_trends = climate%>%
@@ -551,15 +559,84 @@ do_anomaly_stat =with_temp%>%
          oct_anom = temp_oct-mean(temp_oct, na.rm = T),
          nov_anom = temp_nov-mean(temp_nov, na.rm = T),
          dec_anom = temp_dec-mean(temp_dec, na.rm = T),
+         mean_spring_temp_anom = mean - mean(mean, na.rm = T),
+         mixing_anom = mixing_period - mean(mixing_period, na.rm = T),
+         warm_anom = warm - mean(warm, na.rm = T),
+         cold_anom = cold - mean(cold, na.rm = T),
          anoxic_depth_anom = depth_ratio_HYPO-mean(depth_ratio_HYPO, na.rm = T),
          anoxic_area_anom = areal_anoxia_HYPO-mean(areal_anoxia_HYPO, na.rm = T))
+
+library(ppcor)
+library(viridis)
 
 cor_data = do_anomaly_stat%>%
   dplyr::select(hypo_do_anom,spr_temp_anom,Year)%>%
   na.omit()
-library(ppcor)
 pcor.test(cor_data$hypo_do_anom, cor_data$spr_temp_anom,cor_data$Year,method = "spearman")$estimate
-library(viridis)
+
+jpeg("../Figures/Temp and mixing period anomaly - spring.jpg", width = 5, height = 3, res = 300, units = "in")
+do_air_sum = do_anomaly_stat%>%
+  filter(!is.na(mixing_anom),
+         !is.na(hypo_temp_anom))%>%
+  mutate(mixing_anom_sum = ifelse(mixing_anom>5,"> 5",
+                                ifelse(mixing_anom<(-5),"< -5","between -5 \nand 5")),
+         mixing_anom_sum = factor(mixing_anom_sum, levels = c("< -5", "between -5 \nand 5", "> 5")),
+         temp_anom_sum = ifelse(hypo_temp_anom>.5,"> 0.5",
+                                ifelse(hypo_temp_anom<(-0.5),"< -0.5","between -0.5 \nand 0.5")),
+         temp_anom_sum = factor(temp_anom_sum, levels = c("> 0.5", "between -0.5 \nand 0.5", "< -0.5")))%>%
+  group_by(mixing_anom_sum)%>%
+  mutate(n=n())
+length(unique(do_air_sum$LakeID))
+do_air_sum%>%
+  group_by(mixing_anom_sum)%>%
+  mutate(temp_n = n())%>%
+  group_by(mixing_anom_sum,temp_anom_sum)%>%
+  dplyr::summarize(do_n = n(),
+            pct = do_n/unique(temp_n)*100)
+do_air_sum%>%
+  ggplot(aes(fill = temp_anom_sum, x = mixing_anom_sum))+
+  geom_bar(position = "fill")+
+  geom_hline(yintercept = .5, color = "grey80",lty = "dashed")+
+  geom_text(aes(y = .9, label = paste0("n = ",n)), color = "grey50")+
+  labs(fill="Hypolimnetic \ntemp anomaly (mg/L)")+
+  xlab("Mixing period anomaly (days)")+
+  ylab("Percent of lake-years")+
+  scale_y_continuous(labels = scales::percent)+
+  theme_bw()+
+  scale_fill_viridis(discrete=T, direction = -1)
+dev.off()
+
+jpeg("../Figures/Mixing period temp and hypo temp anomaly.jpg", width = 5, height = 3, res = 300, units = "in")
+do_air_sum = do_anomaly_stat%>%
+  filter(!is.na(mean_spring_temp_anom),
+         !is.na(hypo_temp_anom))%>%
+  mutate(mixing_anom_sum = ifelse(mean_spring_temp_anom>1,"> 1",
+                                ifelse(mean_spring_temp_anom<(-1),"< -1","between -1 \nand 1")),
+         mixing_anom_sum = factor(mixing_anom_sum, levels = c("< -1", "between -1 \nand 1", "> 1")),
+         temp_anom_sum = ifelse(hypo_temp_anom>.5,"> 0.5",
+                                ifelse(hypo_temp_anom<(-0.5),"< -0.5","between -0.5 \nand 0.5")),
+         temp_anom_sum = factor(temp_anom_sum, levels = c("> 0.5", "between -0.5 \nand 0.5", "< -0.5")))%>%
+  group_by(mixing_anom_sum)%>%
+  mutate(n=n())
+length(unique(do_air_sum$LakeID))
+do_air_sum%>%
+  group_by(mixing_anom_sum)%>%
+  mutate(temp_n = n())%>%
+  group_by(mixing_anom_sum,temp_anom_sum)%>%
+  dplyr::summarize(do_n = n(),
+            pct = do_n/unique(temp_n)*100)
+do_air_sum%>%
+  ggplot(aes(fill = temp_anom_sum, x = mixing_anom_sum))+
+  geom_bar(position = "fill")+
+  geom_hline(yintercept = .5, color = "grey80",lty = "dashed")+
+  geom_text(aes(y = .9, label = paste0("n = ",n)), color = "grey50")+
+  labs(fill="Hypolimnetic \ntemp anomaly (mg/L)")+
+  xlab("Mixing period temp anomaly (ºC)")+
+  ylab("Percent of lake-years")+
+  scale_y_continuous(labels = scales::percent)+
+  theme_bw()+
+  scale_fill_viridis(discrete=T, direction = -1)
+dev.off()
 
 jpeg("../../results/figures/WI/DO and air temp anomaly - spring.jpg", width = 5, height = 3, res = 300, units = "in")
 do_air_sum = do_anomaly_stat%>%

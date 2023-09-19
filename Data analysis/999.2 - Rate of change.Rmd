@@ -13,9 +13,200 @@ library(slider)
 ```{r}
 narr <- read.csv("../Compiled data/historical_temp_output_narr_daily.csv")
 
-narr%>%
-  group_by(LakeID, Year) %>%
-  arrange(Day) %>%
+narr_means <- narr%>%
+  group_by(LakeID) %>%
   mutate(Rolling_Temp_C = slider::slide_dbl(Temp_C, mean, .before = 3, .after = 3))
+
+narr_mixing <- narr_means %>%
+  filter(!is.na(Temp_C))%>%
+  mutate(Date = as.Date(paste(Year, Month, Day, sep = "-"))) %>%
+  group_by(LakeID,Year)%>%
+  summarize(warm = yday(first(Date[Rolling_Temp_C>20])),
+            cold = yday(last(Date[Rolling_Temp_C<0 & Month < 8])),
+            mean = mean(Temp_C[yday(Date)>cold&yday(Date)<warm], na.rm = T)
+            )%>%
+  mutate(mixing_period = warm-cold)
+
+narr_mixing%>%
+  group_by(LakeID)%>%
+  ggplot(aes(x = Year, y = mean, color = LakeID))+
+  geom_smooth(se=F, method = "lm")+
+  geom_point()+
+  theme(legend.position = "none")
+
+narr_mixing%>%
+  group_by(LakeID)%>%
+  ggplot(aes(x = Year, y = warm, color = LakeID))+
+  geom_smooth(se=F, method = "lm")+
+  geom_point()+
+  theme(legend.position = "none")
+
+narr_mixing%>%
+  group_by(LakeID)%>%
+  ggplot(aes(x = Year, y = cold, color = LakeID))+
+  geom_smooth(se=F, method = "lm")+
+  geom_point()+
+  theme(legend.position = "none")
+
+narr_mixing%>%
+  group_by(LakeID)%>%
+  ggplot(aes(x = Year, y = mixing_period, color = LakeID))+
+  geom_smooth(se=F, method = "lm")+
+  geom_point()+
+  theme(legend.position = "none")
+
+write.csv(narr_mixing, "../Compiled data/NARR_mixing_stats.csv")
+```
+
+Sens duration
+```{r}
+sen_slope_climate <- function(df,var){
+  df <- df %>%
+    mutate(date = ymd_hms(paste(Year,"-01-01 00:00:00")))
+  output = df %>%
+    group_by(LakeID)%>%
+    dplyr::summarize(n = n(),
+                     trend = NA,
+                     sig = NA,
+                     min_year = NA,
+                     max_year = NA)
+  for(lake in unique(df$LakeID)){
+      print(paste(lake))
+      filt = df%>%
+        filter(LakeID==lake)
+      if(length(unique(filt$Year))>=5){
+        sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F, silent = T)$data$res2
+        output$trend[output$LakeID==lake]<-sen$slope[1]
+        output$sig[output$LakeID==lake]<-sen$p[1]
+        output$min_year[output$LakeID==lake]<-min(year(filt$date))
+        output$max_year[output$LakeID==lake]<-max(year(filt$date))
+      }
+  }
+  return(output)
+}
+
+sens_mixing <- sen_slope_climate(narr_mixing, "mixing_period")
+sens_warm <- sen_slope_climate(narr_mixing, "warm")
+sens_cold <- sen_slope_climate(narr_mixing, "cold")
+sens_mean <- sen_slope_climate(narr_mixing, "mean")
+
+
+
+sens_mixing%>%
+  ggplot(aes(x = trend*10))+
+  geom_vline(xintercept = 0)+
+  geom_histogram()
+
+median(sens_mixing$trend*10)
+mean(sens_mixing$trend*10)
+
+min = min(sens_mixing$trend)*10
+max = max(sens_mixing$trend)*10
+abs_max = max(abs(c(min,max)))
+
+for_states <- sens_mixing%>%
+  left_join(lat_long)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey50", size = 2, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  #scale_fill_viridis(name = "Air temperature trend\n(ºC/decade)",
+  #                   limits = c(min,max), option = "H")+
+  scale_fill_gradientn(name = "Spring duration trend\n(days/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "grey80"),
+        legend.position = "bottom")
+jpeg("../Figures/mixing_trends_map.jpeg", width = 5, height = 5, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map
+
+median(sens_mean$trend*10)
+mean(sens_mean$trend*10)
+
+min = min(sens_mean$trend)*10
+max = max(sens_mean$trend)*10
+abs_max = max(abs(c(min,max)))
+
+for_states <- sens_mean%>%
+  left_join(lat_long)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey50", size = 2, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  #scale_fill_viridis(name = "Air temperature trend\n(ºC/decade)",
+  #                   limits = c(min,max), option = "H")+
+  scale_fill_gradientn(name = "Spring air temp. trend\n(ºC/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "grey80"),
+        legend.position = "bottom")
+jpeg("../Figures/spring_air_temp_trends_map.jpeg", width = 5, height = 5, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map
+```
+
+```{r}
+sens_all <- sens_cold %>% mutate(Type = "Latest 0º C")%>%
+  full_join(sens_warm %>% mutate(Type = "Earliest 20º C"))%>%
+  mutate(Type = factor(Type, levels = c("Latest 0º C", "Earliest 20º C")))
+
+min = min(sens_all$trend)*10
+max = max(sens_all$trend)*10
+abs_max = max(abs(c(min,max)))
+
+for_states <- sens_all%>%
+  left_join(lat_long)
+states <- ne_states(returnclass = "sf",country = "United States of America")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "white") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey50", size = 2, alpha  =.5, stroke = .4)+
+  theme_bw()+
+  #scale_fill_viridis(name = "Air temperature trend\n(ºC/decade)",
+  #                   limits = c(min,max), option = "H")+
+  scale_fill_gradientn(name = "Timing trend\n(days/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "grey80"),
+        legend.position = "bottom")+
+  facet_wrap(~Type)
+jpeg("../Figures/mixing_dates_map.jpeg", width = 6, height = 4, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map
 ```
 
