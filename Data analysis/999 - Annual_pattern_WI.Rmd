@@ -690,7 +690,9 @@ do_air_sum = do_anomaly_stat%>%
          do_anom_sum = factor(do_anom_sum, levels = c("> 0.2", "between -0.2 \nand 0.2", "< -0.2")))%>%
   group_by(temp_anom_sum)%>%
   mutate(n=n())
+
 length(unique(do_air_sum$LakeID))
+
 do_air_sum%>%
   group_by(temp_anom_sum)%>%
   mutate(temp_n = n())%>%
