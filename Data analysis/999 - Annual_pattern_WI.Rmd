@@ -49,7 +49,7 @@ summer_avgs_wide = summer_avgs%>%
   full_join(do_demand_points%>%dplyr::select(DO_demand_mgLd, AHOD_mgLd,Year, LakeID)%>%mutate(Layer="HYPO"))%>%
   full_join(vhod5_points%>%dplyr::select(VHOD5_mgLd, Year, LakeID)%>%mutate(Layer="HYPO"))%>%
   unique()%>%
-  pivot_wider(names_from = Layer, values_from = c(spring_Temp_C, TP_ugL, TP_date, DOC_mgL, DOC_date, DO_mgL, DO_date, Chla_ugL, Chla_date, strat_Temp_C, strat_Temp_date, Temp_C, Temp_date, TN_ugL, TN_date, DO_demand_mgLd, AHOD_mgLd, buoyancy_freq, areal_anoxia, depth_ratio, VHOD5_mgLd, hypo_depth, strat_TP_ugL, strat_TN_ugL, strat_TP_date, strat_TN_date, strat_buoyancy_freq,SA_vol_ratio))
+  pivot_wider(names_from = Layer, values_from = c(spring_Temp_C, TP_ugL, TP_date, DOC_mgL, DOC_date, DO_mgL, DO_date, Chla_ugL, Chla_date, strat_Temp_C, strat_Temp_date, Temp_C, Temp_date, TN_ugL, TN_date, DO_demand_mgLd, AHOD_mgLd, buoyancy_freq, areal_anoxia, depth_ratio, VHOD5_mgLd, hypo_depth, strat_TP_ugL, strat_TN_ugL, strat_TP_date, strat_TN_date, strat_buoyancy_freq,SA_vol_ratio, spring_Temp_C, spring_DO_mgL))
 
 length(unique(summer_avgs_wide$LakeID))
 
