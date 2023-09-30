@@ -1,0 +1,145 @@
+---
+title: "ASL Temp change calcs"
+author: "Abby Lewis"
+date: "2022-08-29"
+output: html_document
+---
+
+This file calculates volume-weighted hypolimnetic oxygen demand during the stratified period at each lake. 
+
+Table of contents:
+Step 1: Load data and packages
+Step 2: Calculate the rate of change in volume-weighted oxygen concentrations during the stratified period at each lake (VHOD)
+Step 3: Calculate temperature-corrected oxygen demand values
+Step 4: Calculate trends in oxygen demand over time
+
+
+Step 1: Load data and packages
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(rLakeAnalyzer)
+library(openair)
+
+#Load data and stratification boundaries. This file is created by "03 - Stratified avgs.Rmd"
+full_with_thermo <- read.csv("../Compiled data/Stratified_period_data_with_thermo.csv")%>%
+  mutate(Date=as.Date(Date))
+#Load lake metadata
+lat_long <- read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/fadd3eaa25b5fdd1fc4efba70e660579")
+```
+
+
+Step 2: Calculate the rate of change in hypo temps during the stratified period at each lake (hypo_warming)
+```{r}
+#Total n to start: 609
+length(unique(full_with_thermo$LakeID))
+
+#Calculate mean hypo temps
+hypo_temp <- full_with_thermo%>%
+  filter(Depth_m>hypo_depth)%>%
+  group_by(Date, LakeID)%>%
+  dplyr::summarize(Temp_C = mean(Temp_C, na.rm = T), #mean across all hypolimnetic depths
+                   )%>%
+  mutate(Year= year(Date))%>%
+  group_by(LakeID, Year)%>%
+  filter(!is.na(Temp_C))%>%
+  ungroup()
+
+length(unique(hypo_temp$LakeID)) #603 lakes left
+
+#Calculate the rate of change in hypo temps using lm
+hypo_warming <- hypo_temp%>%
+  mutate(Year = year(Date))%>%
+  group_by(Year, LakeID)%>%
+  dplyr::summarize(n = n(),
+            warming_rate = lm(Temp_C~Date)$coefficients[2],
+            p = summary(lm(Temp_C~Date))$coefficients[8],
+            r2 = summary(lm(Temp_C~Date))$r.squared)%>%
+  filter(n>=3) %>% #Need at least 3 points
+  filter(!is.na(warming_rate))
+length(unique(hypo_warming$LakeID[!is.na(hypo_warming$warming_rate)])) #502
+
+#How many rows get removed by filtering so R2>0.5? 246
+removed_by_r2 <- hypo_warming%>%
+  filter(r2>.5)
+nrow(removed_by_r2[!is.na(removed_by_r2$warming_rate),]) #6497
+nrow(hypo_warming[!is.na(hypo_warming$warming_rate),]) #7899
+7899-6497
+(7899-6497)/7899
+
+#Finish QAQC
+good_warming <- removed_by_r2
+length(unique(good_warming$LakeID)) #492
+
+#Success!
+write.csv(good_warming, "../Compiled data/Hypo_warming_rate.csv", row.names = F)
+```
+
+Step 4: Calculate trends in warming rate over time. This is not currently part of the manuscript, but I thought the analysis was interesting
+```{r}
+split_year = 1800
+
+#Function
+sen_slope_custom <- function(df,var){
+  output = df%>%
+    mutate(era = ifelse(Year<split_year,"before","after"))%>%
+    group_by(LakeID,era)%>%
+    dplyr::summarize(n = n(),
+              trend = NA,
+              sig = NA,
+              min_year = NA,
+              max_year = NA)
+  for(lake in unique(df$LakeID)){
+    for(era in c("before","after")){
+      print(paste(lake,era))
+      filt = df%>%
+        filter(LakeID==lake)%>%
+        mutate(date = as.POSIXct(paste0(Year,"-01-01")))
+      if(era == "before"){
+        filt = filt%>%
+          ungroup()%>%
+          filter(Year<split_year)%>%
+          dplyr::select(-Year)
+      }else{
+        filt = filt%>%
+          ungroup()%>%
+          filter(Year>split_year)%>%
+          dplyr::select(-Year)
+      }
+      if(length(unique(year(filt$date)))>=10){#Only calculate a trend if there are 10 years of data
+        sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F)$data$res2
+        output$trend[output$LakeID==lake&output$era == era]<-sen$slope[1]
+        output$sig[output$LakeID==lake&output$era == era]<-sen$p[1]
+        output$min_year[output$LakeID==lake&output$era == era]<-min(year(filt$date))
+        output$max_year[output$LakeID==lake&output$era == era]<-max(year(filt$date))
+      }
+    }
+  }
+  return(output)
+}
+
+#Calculate trends
+vw_demand_sen <- sen_slope_custom(good_warming,"warming_rate")
+
+#Plot
+vw_demand_sen%>%
+  filter(!is.na(trend),
+         sig<0.05)%>%
+  mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  ggplot(aes(x = type))+
+  geom_bar()+
+  xlab("")+
+  ggtitle("Of lakes with significant demand trends:")
+
+vw_demand_sen%>%
+  ungroup()%>%
+  filter(!is.na(trend))%>%
+  mutate(n_tot = n())%>%
+  filter(sig<0.05)%>%
+  mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  group_by(type)%>%
+  dplyr::summarize(n = n(),
+                   pct = n/unique(n_tot)*100)
+
+```

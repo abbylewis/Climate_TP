@@ -38,7 +38,7 @@ lake_bats <- read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/b
   filter(Area_m2>0)%>%
   group_by(LakeID)%>%
   mutate(methods_n = length(unique(Method)))%>%
-  filter(methods_n==1|Method=="model")%>%
+  filter(methods_n==1|Method=="data")%>%
   ungroup()
 
 #Check bathymetric data availability
