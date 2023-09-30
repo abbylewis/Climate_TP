@@ -50,12 +50,16 @@ length(unique(hypo_temp$LakeID)) #603 lakes left
 
 #Calculate the rate of change in hypo temps using lm
 hypo_warming <- hypo_temp%>%
-  mutate(Year = year(Date))%>%
+  mutate(Year = year(Date),
+         DOY = yday(Date))%>%
   group_by(Year, LakeID)%>%
   dplyr::summarize(n = n(),
-            warming_rate = lm(Temp_C~Date)$coefficients[2],
-            p = summary(lm(Temp_C~Date))$coefficients[8],
-            r2 = summary(lm(Temp_C~Date))$r.squared)%>%
+            warming_rate = lm(Temp_C~DOY)$coefficients[2],
+            intercept = lm(Temp_C~DOY)$coefficients[1],
+            modeled_temp_may = warming_rate*yday("2022-05-01")+intercept,
+            modeled_temp_oct = warming_rate*yday("2022-10-01")+intercept,
+            p = summary(lm(Temp_C~DOY))$coefficients[8],
+            r2 = summary(lm(Temp_C~DOY))$r.squared)%>%
   filter(n>=3) %>% #Need at least 3 points
   filter(!is.na(warming_rate))
 length(unique(hypo_warming$LakeID[!is.na(hypo_warming$warming_rate)])) #502
@@ -71,6 +75,14 @@ nrow(hypo_warming[!is.na(hypo_warming$warming_rate),]) #7899
 #Finish QAQC
 good_warming <- removed_by_r2
 length(unique(good_warming$LakeID)) #492
+
+good_warming %>%
+  ggplot(aes(x = warming_rate))+
+  geom_histogram()
+
+good_warming %>%
+  ggplot(aes(x = modeled_temp_may))+
+  geom_histogram()
 
 #Success!
 write.csv(good_warming, "../Compiled data/Hypo_warming_rate.csv", row.names = F)
@@ -120,26 +132,95 @@ sen_slope_custom <- function(df,var){
 }
 
 #Calculate trends
-vw_demand_sen <- sen_slope_custom(good_warming,"warming_rate")
+warming_sen <- sen_slope_custom(good_warming,"warming_rate")
+may_sen <- sen_slope_custom(good_warming,"modeled_temp_may")
+oct_sen <- sen_slope_custom(good_warming,"modeled_temp_oct")
 
 #Plot
-vw_demand_sen%>%
+warming_sen%>%
   filter(!is.na(trend),
-         sig<0.05)%>%
+         sig<0.05
+         )%>%
   mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
   ggplot(aes(x = type))+
   geom_bar()+
   xlab("")+
-  ggtitle("Of lakes with significant demand trends:")
+  ggtitle("Of lakes with significant warming rate trends:")
 
-vw_demand_sen%>%
-  ungroup()%>%
-  filter(!is.na(trend))%>%
-  mutate(n_tot = n())%>%
-  filter(sig<0.05)%>%
+may_sen%>%
+  filter(!is.na(trend),
+         sig<0.05
+         )%>%
   mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  ggplot(aes(x = type))+
+  geom_bar()+
+  xlab("")+
+  ggtitle("Of lakes with significant may temp trends:")
+
+warming_sen%>%
+  ungroup()%>%
+  filter(!is.na(trend),
+         sig<0.05)%>%
+  mutate(n_tot = n(),
+         type = ifelse(trend<0,"Decreasing","Increasing"))%>%
   group_by(type)%>%
   dplyr::summarize(n = n(),
                    pct = n/unique(n_tot)*100)
 
+warming_sen %>%
+  left_join(lat_long) %>%
+  filter(StateOrProvince == "Wisconsin") %>%
+  filter(!is.na(trend)) %>%
+  mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  ggplot(aes(x = type, fill = sig < 0.05))+
+  geom_bar()+
+  xlab("")+
+  ggtitle("Trend in warming rate across all WI lakes")
+
+may_sen %>%
+  left_join(lat_long) %>%
+  filter(StateOrProvince == "Wisconsin") %>%
+  filter(!is.na(trend)) %>%
+  mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  ggplot(aes(x = type, fill = sig < 0.05))+
+  geom_bar()+
+  xlab("")+
+  ggtitle("Trend in may temp across all WI lakes")
+
+oct_sen %>%
+  left_join(lat_long) %>%
+  filter(StateOrProvince == "Wisconsin") %>%
+  filter(!is.na(trend)) %>%
+  mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  ggplot(aes(x = type, fill = sig < 0.05))+
+  geom_bar()+
+  xlab("")+
+  ggtitle("Trend in oct temp across all WI lakes")
+
+warming_sen %>%
+  left_join(lat_long) %>%
+  filter(StateOrProvince == "Wisconsin") %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend))+
+  geom_density()+
+  xlab("")+
+  ggtitle("All WI lakes")
+
+may_sen %>%
+  left_join(lat_long) %>%
+  filter(StateOrProvince == "Wisconsin") %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend))+
+  geom_density()+
+  xlab("")+
+  ggtitle("All WI lakes")
+
+oct_sen %>%
+  left_join(lat_long) %>%
+  filter(StateOrProvince == "Wisconsin") %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend))+
+  geom_density()+
+  xlab("")+
+  ggtitle("All WI lakes")
 ```

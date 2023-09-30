@@ -157,12 +157,17 @@ climate_sum_jra55 = climate_jra55%>%
             jra55_temp_nov = Temp_C[Month==11],
             jra55_temp_dec = Temp_C[Month==12])
 
+warming_rate <- read_csv("../Compiled data/Hypo_warming_rate.csv")
+AF <- read.csv("../Compiled data/AF.csv")
+
 with_temp_all = summer_avgs_wide%>%
   left_join(climate_sum)%>%
   left_join(climate_sum_narr)%>%
   left_join(climate_sum_jra55)%>%
   left_join(precip_sum)%>%
-  left_join(mixing)
+  left_join(mixing)%>%
+  left_join(warming_rate)%>%
+  left_join(AF)
 
 possibly_unstratified = with_temp_all%>%
   group_by(LakeID)%>%
@@ -193,6 +198,30 @@ with_temp = with_temp_hist%>%
 length(unique(with_temp$LakeID))
 ```
 
+```{r}
+source("sen_slope_custom.R")
+AF_trend <- AF%>%
+  mutate(date = ymd_hms(paste(Year,"-01-01 00:00:00")))%>%
+  left_join(lat_long) %>%
+  filter(!is.na(anoxic_onset),
+         StateOrProvince == "Wisconsin")
+onset_trend <- sen_slope_custom(AF_trend, "anoxic_onset")
+
+AF_trend <- AF%>%
+  mutate(date = ymd_hms(paste(Year,"-01-01 00:00:00")))%>%
+  left_join(lat_long) %>%
+  filter(!is.na(AF),
+         StateOrProvince == "Wisconsin")
+AF_trend <- sen_slope_custom(AF_trend, "AF")
+
+AF %>%
+  left_join(lat_long) %>%
+  filter(!is.na(anoxic_onset),
+         StateOrProvince == "Wisconsin") %>%
+  summarize(length(unique(LakeID)))
+```
+
+
 Plot raw concs
 ```{r}
 with_temp%>%
@@ -205,12 +234,6 @@ with_temp%>%
   ggplot(aes(x = Year, y = DO_mgL_HYPO, group = LakeID))+
   geom_line()
 ```
-```{r}
-with_temp%>%
-  
-```
-
-
 
 ```{r}
 temp_trends = climate%>%
