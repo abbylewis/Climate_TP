@@ -196,6 +196,14 @@ nrow(with_temp_hist%>%filter(Year>=1990))
 with_temp = with_temp_hist%>%
   filter(Year>=1990)
 length(unique(with_temp$LakeID))
+
+#wi_lake_export <- with_temp %>%
+#  filter(StateOrProvince == "Wisconsin") %>%
+#  group_by(LakeID, LakeName) %>%
+#  summarize(n_year = length(unique(Year))) %>%
+#  arrange(n_year)
+#
+#write.csv(wi_lake_export, "../Compiled data/WI_lakes.csv")
 ```
 
 ```{r}
