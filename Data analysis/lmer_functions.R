@@ -170,6 +170,51 @@ aic_calculator_lmer = function(dataset,responses,potential_drivers,interaction="
   }
 }
 
+# LM model selection
+aic_calculator_lm = function(dataset,responses,potential_drivers,interaction="+"){
+  drivers = c(paste(potential_drivers, collapse = " "))
+  dataset = dataset%>%
+    ungroup()%>%
+    dplyr::select(all_of(c(potential_drivers,responses,"LakeID")))%>%
+    filter(if_all(where(is.numeric),is.finite))%>%
+    mutate(across(-LakeID,zscore))
+  
+  for(response in responses){
+    if(sum(complete.cases(dataset))>0){
+      model = lm(as.formula(paste0(response, "~", paste0(paste0(potential_drivers, collapse = interaction)))), data = dataset)
+      AICcs = c(AICc(model))
+    } else{
+      AICcs = c(NA)
+    }
+    for (num_drivers in 1:(length(potential_drivers)-1)){
+      driver_matrix = combn(potential_drivers,num_drivers)
+      for(option_num in 1:ncol(driver_matrix)){
+        if(sum(complete.cases(dataset[c(response,driver_matrix[,option_num])]))>0){
+          model = lm(as.formula(paste0(response, "~", paste0(paste0(driver_matrix[,option_num], collapse = interaction)))), data = dataset)
+          AICcs = c(AICcs, AICc(model))
+        } else{
+          AICcs = c(AICcs, NA)
+        }
+        drivers = c(drivers, paste(driver_matrix[,option_num], collapse = " "))
+      }
+    }
+    if(response == responses[1]){
+      output = data.frame(drivers,AICcs)
+      colnames(output)=c("drivers",response)
+    } else{
+      output[response] = AICcs
+    }
+  }
+  output = output%>%
+    filter(!is.na(get(responses)))
+  
+  for(response in responses){
+    best_val = min(output[response][!is.na(output[response])&output[response]>-Inf])
+    print(paste0(response, ":"))
+    print(paste0(output$drivers[output[response]<=best_val+2],": AIC = ",round(output[response][output[response]<=best_val+2])))
+  }
+}
+
 #Model selection where models can only include one predictor
 aic_calculator_onevar = function(dataset,responses,potential_drivers){
   dataset = dataset%>%
