@@ -1,0 +1,161 @@
+---
+title: "Untitled"
+author: "Abby Lewis"
+date: "2023-10-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(openair)
+```
+
+```{r}
+full_with_thermo <- read_csv("../Compiled data/Stratified_period_data_with_thermo.csv")
+
+summer_layers <- full_with_thermo%>%
+  mutate(Layer = ifelse(!is.na(Depth_m)&Depth_m<epi_depth, "EPI", NA),
+         Layer = ifelse(is.na(Depth_m)&!is.na(Interval)&Interval=="EPILIMNION","EPI",Layer),
+         Layer = ifelse(!is.na(Depth_m)&Depth_m>hypo_depth,"HYPO",Layer),
+         Layer = ifelse(is.na(Depth_m)&!is.na(Interval)&Interval=="HYPOLIMNION","HYPO",Layer),
+         Layer = ifelse(!is.na(Depth_m)&Depth_m<hypo_depth&Depth_m>epi_depth, "META",Layer),
+         Layer = ifelse(is.na(Depth_m)&!is.na(Interval)&Interval=="METALIMNION","META",Layer))%>%
+  filter(!is.na(Layer))
+
+for_sen <- summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  mutate(Month = month(Date)) %>%
+  group_by(LakeID, Month, Year)%>%
+  dplyr::summarize(Temp_C = mean(Temp_C, na.rm = T))
+
+#Function
+sen_slope_custom <- function(df,var){
+  output = df%>%
+    group_by(LakeID)%>%
+    dplyr::summarize(n = n(),
+              trend = NA,
+              sig = NA,
+              min_year = NA,
+              max_year = NA)
+  for(lake in unique(df$LakeID)){
+    print(paste(lake))
+    filt = df %>%
+      filter(LakeID==lake) %>%
+      mutate(date = as.POSIXct(paste0(Year,"-01-01"))) %>%
+      ungroup()%>%
+      dplyr::select(-Year)
+    if(length(unique(year(filt$date)))>=10){#Only calculate a trend if there are 10 years of data
+      sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F)$data$res2
+      output$trend[output$LakeID==lake]<-sen$slope[1]
+      output$sig[output$LakeID==lake]<-sen$p[1]
+      output$min_year[output$LakeID==lake]<-min(year(filt$date))
+      output$max_year[output$LakeID==lake]<-max(year(filt$date))
+    }
+  }
+  return(output)
+}
+
+may_sen <- sen_slope_custom(for_sen %>% filter(Month == 5),"Temp_C")
+jun_sen <- sen_slope_custom(for_sen %>% filter(Month == 6),"Temp_C")
+jul_sen <- sen_slope_custom(for_sen %>% filter(Month == 7),"Temp_C")
+aug_sen <- sen_slope_custom(for_sen %>% filter(Month == 8),"Temp_C")
+sep_sen <- sen_slope_custom(for_sen %>% filter(Month == 9),"Temp_C")
+oct_sen <- sen_slope_custom(for_sen %>% filter(Month == 10),"Temp_C")
+mean_sen <- sen_slope_custom(summer_layers %>%
+                               filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+                               group_by(LakeID, Year)%>%
+                               dplyr::summarize(Temp_C = mean(Temp_C, na.rm = T)),
+                             "Temp_C")
+
+all_trends <- may_sen %>%
+  mutate(Month = 5) %>%
+  full_join(jun_sen %>% mutate(Month = 6)) %>%
+  full_join(jul_sen %>% mutate(Month = 7)) %>%
+  full_join(aug_sen %>% mutate(Month = 8)) %>%
+  full_join(sep_sen %>% mutate(Month = 9)) #%>%
+  #full_join(oct_sen %>% mutate(Month = 10)) 
+
+write.csv(all_trends, "hypo_temp_monthly.csv", row.names = F)
+all_trends <- read.csv("hypo_temp_monthly.csv")
+
+library(RColorBrewer)
+
+all_trends %>%
+  filter(!is.na(trend)) %>%
+  group_by(Month) %>%
+  summarize(n = n(),
+            insig_pos = sum(trend > 0 & sig >= 0.05)/n,
+            insig_neg = sum(trend < 0 & sig >= 0.05)/n,
+            sig_pos = sum(trend > 0 & sig < 0.05)/n,
+            sig_neg = sum(trend < 0 & sig < 0.05)/n) %>%
+  pivot_longer(cols = c("insig_pos", "insig_neg", "sig_pos", "sig_neg")) %>%
+  mutate(name = factor(name, 
+                       levels = c("sig_neg","insig_neg","insig_pos","sig_pos"), 
+                       labels = c("Significant cooling trend",
+                                  "Insignificant trend",
+                                  "Insignificant trend",
+                                  "Significant warming trend"))) %>%
+  ggplot(aes(x = Month, y = value, fill = name)) + 
+  geom_bar(position="stack", stat="identity", color = "black") +
+  scale_fill_manual(values = c("turquoise","grey90","lightcoral"), name = "") +
+  geom_text(aes(y = 1.05, label = paste0("n = ", n))) + 
+  theme_bw() +
+  ylab("Proportion")
+
+library(ggridges)
+
+all_trends %>%
+  ggplot(aes(x = trend, y = as.factor(Month))) + 
+  geom_density_ridges(
+    quantile_lines = TRUE,
+    alpha = 1,
+    point_alpha = 1,
+    fill = "grey96",
+    point_color = "grey50",
+    point_fill = "white",
+    #aes(point_fill = Var),
+    point_shape = 21,
+    scale=0.8) + 
+  geom_vline(xintercept = 0) +
+  xlim(-0.25, 0.25)
+
+all_trends %>%
+  ggplot(aes(y = trend, x = as.factor(Month)))+
+  geom_boxplot()
+
+neg <- all_trends %>%
+  filter(!is.na(trend),
+         trend < 0)
+
+summary(lm(all_trends$trend ~ all_trends$Month))
+
+with_mean <- all_trends %>%
+  mutate(Month = as.character(Month)) %>%
+  full_join(mean_sen %>%
+              mutate(Month = "mean"))
+
+with_mean %>%
+  filter(!is.na(trend)) %>%
+  group_by(Month) %>%
+  summarize(n = n(),
+            insig_pos = sum(trend > 0 & sig >= 0.05)/n,
+            insig_neg = sum(trend < 0 & sig >= 0.05)/n,
+            sig_pos = sum(trend > 0 & sig < 0.05)/n,
+            sig_neg = sum(trend < 0 & sig < 0.05)/n) %>%
+  pivot_longer(cols = c("insig_pos", "insig_neg", "sig_pos", "sig_neg")) %>%
+  mutate(name = factor(name, 
+                       levels = c("sig_neg","insig_neg","insig_pos","sig_pos"), 
+                       labels = c("Significant cooling trend",
+                                  "Insignificant trend",
+                                  "Insignificant trend",
+                                  "Significant warming trend"))) %>%
+  ggplot(aes(x = Month, y = value, fill = name)) + 
+  geom_bar(position="stack", stat="identity", color = "black") +
+  scale_fill_manual(values = c("turquoise","grey90","lightcoral"), name = "") +
+  geom_text(aes(y = 1.05, label = paste0("n = ", n))) + 
+  theme_bw() +
+  ylab("Proportion")
+```
+

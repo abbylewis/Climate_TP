@@ -57,7 +57,7 @@ hypo_warming <- hypo_temp%>%
             warming_rate = lm(Temp_C~DOY)$coefficients[2],
             intercept = lm(Temp_C~DOY)$coefficients[1],
             modeled_temp_may = warming_rate*yday("2022-05-01")+intercept,
-            modeled_temp_oct = warming_rate*yday("2022-10-01")+intercept,
+            modeled_temp_sep = warming_rate*yday("2022-9-01")+intercept,
             p = summary(lm(Temp_C~DOY))$coefficients[8],
             r2 = summary(lm(Temp_C~DOY))$r.squared)%>%
   filter(n>=3) %>% #Need at least 3 points
@@ -133,8 +133,9 @@ sen_slope_custom <- function(df,var){
 
 #Calculate trends
 warming_sen <- sen_slope_custom(good_warming,"warming_rate")
+write.csv(warming_sen, "warming_sen.csv", row.names = F)
 may_sen <- sen_slope_custom(good_warming,"modeled_temp_may")
-oct_sen <- sen_slope_custom(good_warming,"modeled_temp_oct")
+sep_sen <- sen_slope_custom(good_warming,"modeled_temp_sep")
 
 #Plot
 warming_sen%>%
@@ -147,6 +148,12 @@ warming_sen%>%
   xlab("")+
   ggtitle("Of lakes with significant warming rate trends:")
 
+warming_sen%>%
+  filter(!is.na(trend))%>%
+  ggplot(aes(x = trend))+
+  geom_density()+
+  xlab("Trend in within-season warming rate")
+
 may_sen%>%
   filter(!is.na(trend),
          sig<0.05
@@ -157,7 +164,27 @@ may_sen%>%
   xlab("")+
   ggtitle("Of lakes with significant may temp trends:")
 
+sep_sen%>%
+  filter(!is.na(trend),
+         sig<0.05
+         )%>%
+  mutate(type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  ggplot(aes(x = type))+
+  geom_bar()+
+  xlab("")+
+  ggtitle("Of lakes with significant sep temp trends:")
+
 warming_sen%>%
+  ungroup()%>%
+  filter(!is.na(trend),
+         sig<0.05)%>%
+  mutate(n_tot = n(),
+         type = ifelse(trend<0,"Decreasing","Increasing"))%>%
+  group_by(type)%>%
+  dplyr::summarize(n = n(),
+                   pct = n/unique(n_tot)*100)
+
+may_sen%>%
   ungroup()%>%
   filter(!is.na(trend),
          sig<0.05)%>%
