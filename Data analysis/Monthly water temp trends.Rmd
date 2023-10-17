@@ -30,6 +30,8 @@ for_sen <- summer_layers %>%
   group_by(LakeID, Month, Year)%>%
   dplyr::summarize(Temp_C = mean(Temp_C, na.rm = T))
 
+all_data <- read.csv("../Compiled data/All_data_annual AF.csv")
+
 #Function
 sen_slope_custom <- function(df,var){
   output = df%>%
@@ -63,11 +65,11 @@ jul_sen <- sen_slope_custom(for_sen %>% filter(Month == 7),"Temp_C")
 aug_sen <- sen_slope_custom(for_sen %>% filter(Month == 8),"Temp_C")
 sep_sen <- sen_slope_custom(for_sen %>% filter(Month == 9),"Temp_C")
 oct_sen <- sen_slope_custom(for_sen %>% filter(Month == 10),"Temp_C")
-mean_sen <- sen_slope_custom(summer_layers %>%
-                               filter(Layer == "HYPO", !is.na(Temp_C)) %>%
-                               group_by(LakeID, Year)%>%
-                               dplyr::summarize(Temp_C = mean(Temp_C, na.rm = T)),
-                             "Temp_C")
+mean_sen <- sen_slope_custom(all_data %>% filter(!is.na(strat_Temp_C_HYPO)), "strat_Temp_C_HYPO")
+summer_mean_sen <- sen_slope_custom(all_data %>% filter(!is.na(Temp_C_HYPO)), "Temp_C_HYPO")
+summer_do_sen <- sen_slope_custom(all_data %>% filter(!is.na(DO_mgL_HYPO), DO_mgL_HYPO > 1), "DO_mgL_HYPO")
+summer_af_sen <- sen_slope_custom(all_data %>% filter(!is.na(AF), AF > 0), "AF")
+summer_vhod_sen <- sen_slope_custom(all_data %>% filter(!is.na(DO_demand_mgLd_HYPO)), "DO_demand_mgLd_HYPO")
 
 all_trends <- may_sen %>%
   mutate(Month = 5) %>%
@@ -78,6 +80,15 @@ all_trends <- may_sen %>%
   #full_join(oct_sen %>% mutate(Month = 10)) 
 
 write.csv(all_trends, "hypo_temp_monthly.csv", row.names = F)
+write.csv(mean_sen, "hypo_temp_mean_trends.csv", row.names = F)
+write.csv(summer_do_sen, "summer_do_trends.csv", row.names = F)
+write.csv(summer_af_sen, "summer_af_trends.csv", row.names = F)
+write.csv(summer_vhod_sen, "summer_vhod_trends.csv", row.names = F)
+write.csv(summer_mean_sen, "summer_hypo_temp_mean_trends.csv", row.names = F)
+```
+
+Plot significant trends
+```{r}
 all_trends <- read.csv("hypo_temp_monthly.csv")
 
 library(RColorBrewer)
@@ -104,7 +115,36 @@ all_trends %>%
   theme_bw() +
   ylab("Proportion")
 
+all_trends %>%
+  filter(!is.na(trend)) %>%
+  group_by(Month) %>%
+  summarize(n = n(),
+            n_sig = sum(sig < 0.05),
+            sig_pos = sum(trend > 0 & sig < 0.05)/n_sig,
+            sig_neg = sum(trend < 0 & sig < 0.05)/n_sig) %>%
+  pivot_longer(cols = c("sig_pos", "sig_neg")) %>%
+  mutate(name = factor(name, 
+                       levels = c("sig_neg","sig_pos"), 
+                       labels = c("Significant cooling trend",
+                                  "Significant warming trend"))) %>%
+  ggplot(aes(x = Month, y = value, fill = name)) + 
+  geom_bar(position="stack", stat="identity", color = "black") +
+  scale_fill_manual(values = c("turquoise","lightcoral"), name = "") +
+  geom_text(aes(y = 1.05, label = paste0(n_sig, "/", n))) + 
+  geom_text(aes(y = 0.75, label = paste0(round(value, 2)*100,"%")), 
+            data = .%>%filter(name == "Significant cooling trend")) + 
+  theme_bw() +
+  ylab("Proportion\n(out of all lakes with significant trends)")
+```
+
+Plot ridges
+```{r}
+mean_sen <- read.csv("hypo_temp_mean_trends.csv")
+summer_mean_sen <- read.csv("summer_hypo_temp_mean_trends.csv")
 library(ggridges)
+
+mean_trend <- mean(all_trends$trend, na.rm = T)
+sd_trend <- sd(all_trends$trend, na.rm = T)
 
 all_trends %>%
   ggplot(aes(x = trend, y = as.factor(Month))) + 
@@ -113,13 +153,13 @@ all_trends %>%
     alpha = 1,
     point_alpha = 1,
     fill = "grey96",
-    point_color = "grey50",
+    point_color = "grey30",
     point_fill = "white",
     #aes(point_fill = Var),
     point_shape = 21,
     scale=0.8) + 
   geom_vline(xintercept = 0) +
-  xlim(-0.25, 0.25)
+  coord_cartesian(xlim = c(mean_trend-sd_trend, mean_trend+sd_trend))
 
 all_trends %>%
   ggplot(aes(y = trend, x = as.factor(Month)))+
@@ -129,12 +169,19 @@ neg <- all_trends %>%
   filter(!is.na(trend),
          trend < 0)
 
-summary(lm(all_trends$trend ~ all_trends$Month))
+summary(lm(trend ~ Month, data = all_trends))
+#install.packages("ordPens")
+data_ord_aov <- all_trends %>%
+  filter(!is.na(trend)) %>%
+  mutate(Month = Month - 4)
+ordPens::ordAOV(data_ord_aov$Month, data_ord_aov$trend)
 
 with_mean <- all_trends %>%
   mutate(Month = as.character(Month)) %>%
   full_join(mean_sen %>%
-              mutate(Month = "mean"))
+              mutate(Month = "mean")) %>%
+  full_join(summer_mean_sen %>%
+              mutate(Month = "summer_mean"))
 
 with_mean %>%
   filter(!is.na(trend)) %>%
@@ -150,12 +197,798 @@ with_mean %>%
                        labels = c("Significant cooling trend",
                                   "Insignificant trend",
                                   "Insignificant trend",
-                                  "Significant warming trend"))) %>%
+                                  "Significant warming trend")),
+         panel = ifelse(Month %in% c("mean", "summer_mean"), "mean", "numeric"),
+         panel = factor(panel, levels = c("numeric","mean")),
+         Month = factor(Month, 
+                        levels = c("5", "6", "7", "8", "9", "mean", "summer_mean"),
+                        labels = c("May", "Jun", "Jul", "Aug", "Sep", 
+                                   "Strat. mean\ntemp", "Summer\ntemp"))) %>%
   ggplot(aes(x = Month, y = value, fill = name)) + 
   geom_bar(position="stack", stat="identity", color = "black") +
   scale_fill_manual(values = c("turquoise","grey90","lightcoral"), name = "") +
   geom_text(aes(y = 1.05, label = paste0("n = ", n))) + 
   theme_bw() +
-  ylab("Proportion")
+  ylab("Proportion")+
+  facet_grid(~panel, scales = "free_x", space = "free_x")+
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        axis.title.x = element_blank())
+
+with_mean %>%
+  filter(!is.na(trend)) %>%
+  group_by(Month) %>%
+  summarize(n = n(),
+            n_sig = sum(sig < 0.05),
+            sig_pos = sum(trend > 0 & sig < 0.05)/n_sig,
+            sig_neg = sum(trend < 0 & sig < 0.05)/n_sig) %>%
+  pivot_longer(cols = c("sig_pos", "sig_neg")) %>%
+  mutate(name = factor(name, 
+                       levels = c("sig_neg","sig_pos"), 
+                       labels = c("Significant cooling trend",
+                                  "Significant warming trend")),
+         panel = ifelse(Month %in% c("mean", "summer_mean"), "mean", "numeric"),
+         panel = factor(panel, levels = c("numeric","mean")),
+         Month = factor(Month, 
+                        levels = c("5", "6", "7", "8", "9", "mean", "summer_mean"),
+                        labels = c("May", "Jun", "Jul", "Aug", "Sep", 
+                                   "Strat. mean\ntemp", "Summer\ntemp"))) %>%
+  ggplot(aes(x = Month, y = value, fill = name)) + 
+  geom_bar(position="stack", stat="identity", color = "black") +
+  scale_fill_manual(values = c("turquoise","lightcoral"), name = "") +
+  geom_text(aes(y = 1.05, label = paste0(n_sig, "/", n))) + 
+  geom_text(aes(y = 0.75, label = paste0(round(value, 2)*100,"%")), 
+            data = .%>%filter(name == "Significant cooling trend")) + 
+  theme_bw() +
+  ylab("Proportion\n(out of all lakes with significant trends)")+
+  facet_grid(~panel, scales = "free_x", space = "free_x")+
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        axis.title.x = element_blank())
 ```
 
+
+```{r}
+warming <- read.csv("warming_sen.csv")
+
+mean_sen %>%
+  rename(trend_mean = trend, sig_mean = sig) %>%
+  select(LakeID, trend_mean, sig_mean) %>%
+  left_join(warming) %>%
+  filter(!is.na(trend) & !is.na(sig) & sig < 0.05) %>%
+  ggplot(aes(x = trend_mean, fill = trend < 0)) +
+  geom_density(alpha = 0.5)
+
+mean_sen %>%
+  rename(trend_mean = trend, sig_mean = sig) %>%
+  select(LakeID, trend_mean, sig_mean) %>%
+  left_join(warming) %>%
+  filter(trend > 0)
+
+mean_sen %>%
+  rename(trend_mean = trend, sig_mean = sig) %>%
+  select(LakeID, trend_mean, sig_mean) %>%
+  left_join(warming) %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend_mean, fill = trend < 0)) +
+  geom_density(alpha = 0.5)
+
+mean_sen %>%
+  rename(trend_mean = trend, sig_mean = sig) %>%
+  select(LakeID, trend_mean, sig_mean) %>%
+  left_join(warming) %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend_mean, y = trend)) +
+  geom_point()
+
+summer_mean_sen %>%
+  filter(sig < 0.05) %>%
+  rename(trend_mean = trend, sig_mean = sig) %>%
+  select(LakeID, trend_mean, sig_mean) %>%
+  left_join(warming) %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(y = trend_mean, x = trend)) +
+  geom_smooth(method = "lm")+
+  geom_point(aes(color = sig < 0.05))
+
+jpeg("../Figures/warming_rate_trends.jpg", res = 300, width = 3, height = 3, units = "in")
+warming %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend <0, fill = sig < 0.05))+
+  geom_bar() +
+  ylab("Warming rate trend")+
+  scale_x_discrete(breaks = c(T, F), labels = c("Decrease", "Increase")) +
+  theme_bw()+
+  theme(axis.title.x = element_blank())
+dev.off()
+```
+
+```{r}
+library(ggthemes)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+#remotes::install_github("ropensci/rnaturalearthhires")
+library(rnaturalearthhires)
+library(ggspatial)
+library(viridis)
+library(ggpubr)
+
+lat_long = read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/fadd3eaa25b5fdd1fc4efba70e660579")
+
+all_trends <- summer_mean_sen %>%
+  filter(!is.na(trend))
+min = min(all_trends$trend)*10
+max = max(all_trends$trend)*10
+abs_max = max(abs(c(min,max)))
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(25, 50), xlim = c(-130,-60)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Hypo. temp. trend\n(ºC/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/hypo_temp_map_us.jpeg", width = 8, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Hypo. temp. trend\n(ºC/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/hypo_temp_map_wi.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-76,-67)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Hypo. temp. trend\n(ºC/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/hypo_temp_map_ne.jpeg", width = 4, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_euro <- all_trends %>%
+  left_join(lat_long)
+
+euro_map = ggplot(data = world) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(43, 70), xlim = c(-5,30)) +
+  geom_point(data = for_euro, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Hypo. temp. trend\n(ºC/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/hypo_temp_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+euro_map
+dev.off()
+```
+Warming rate
+```{r}
+all_trends <- warming %>%
+  filter(!is.na(trend))
+min = min(all_trends$trend)*10
+max = max(all_trends$trend)*10
+abs_max = max(abs(c(min,max)))
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(25, 50), xlim = c(-130,-60)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Warming rate trend\n(ºC/d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_us.jpeg", width = 8, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Warming rate trend\n(ºC/d/decade)",
+                       colours = c("blue","blue","white","red","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_wi.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-76,-67)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Warming rate trend\n(ºC/d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_ne.jpeg", width = 4, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_euro <- all_trends %>%
+  left_join(lat_long)
+
+euro_map = ggplot(data = world) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(43, 70), xlim = c(-5,30)) +
+  geom_point(data = for_euro, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "Warming rate trend\n(ºC/d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+euro_map
+dev.off()
+```
+
+Warming rate discrete
+```{r}
+all_trends <- warming %>%
+  filter(!is.na(trend))
+min = min(all_trends$trend)*10
+max = max(all_trends$trend)*10
+abs_max = max(abs(c(min,max)))
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA",
+         !is.na(trend)) %>%
+  mutate(class = ifelse(trend<0 & sig < 0.05,
+                        "decrease",
+                        ifelse(trend > 0 & sig < 0.05,
+                               "increase",
+                               "no sig change")))
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(25, 50), xlim = c(-130,-60)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = class),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_manual(name = "Warming rate trend",
+                    values = c("blue","white","red"),
+                    breaks = c("decrease","no sig change", "increase"))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_us.jpeg", width = 8, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = class),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_manual(name = "Warming rate trend",
+                    values = c("blue","white","red"),
+                    breaks = c("decrease","no sig change", "increase"))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_wi.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-76,-67)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = class),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_manual(name = "Warming rate trend",
+                    values = c("blue","white","red"),
+                    breaks = c("decrease","no sig change", "increase"))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_ne.jpeg", width = 4, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+for_euro <- all_trends %>%
+  left_join(lat_long) %>%
+  mutate(class = ifelse(trend<0 & sig < 0.05,
+                        "decrease",
+                        ifelse(trend > 0 & sig < 0.05,
+                               "increase",
+                               "no sig change")))
+
+euro_map = ggplot(data = world) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(43, 70), xlim = c(-5,30)) +
+  geom_point(data = for_euro, 
+             aes(Longitude_DD, Latitude_DD, fill = class),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_manual(name = "Warming rate trend",
+                    values = c("blue","white","red"),
+                    breaks = c("decrease","no sig change", "increase"))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/warming_rate_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+euro_map
+dev.off()
+```
+
+
+DO
+```{r}
+summer_do_trends <- read.csv("summer_do_trends.csv")
+
+all_trends <- summer_do_trends %>%
+  filter(!is.na(trend))
+min = min(all_trends$trend)*10
+max = max(all_trends$trend)*10
+abs_max = max(abs(c(min,max)))
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(25, 50), xlim = c(-130,-60)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "DO trend\n(mg/L/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/do_map_us.jpeg", width = 8, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "DO trend\n(mg/L/decade)",
+                       colours = c("blue","blue","white","red","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/do_map_wi.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-76,-67)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "DO trend\n(mg/L/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/do_map_ne.jpeg", width = 4, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_euro <- all_trends %>%
+  left_join(lat_long)
+
+euro_map = ggplot(data = world) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(43, 70), xlim = c(-5,30)) +
+  geom_point(data = for_euro, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "DO trend\n(mg/L/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/do_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+euro_map
+dev.off()
+```
+
+AF
+```{r}
+summer_af_trends <- read.csv("summer_af_trends.csv")
+
+all_trends <- summer_af_trends %>%
+  filter(!is.na(trend))
+min = min(all_trends$trend)*10
+max = max(all_trends$trend)*10
+abs_max = max(abs(c(min,max)))
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(25, 50), xlim = c(-130,-60)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "AF trend\n(d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/af_map_us.jpeg", width = 8, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+wi_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "AF trend\n(d/decade)",
+                       colours = c("blue","blue","white","red","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/af_map_wi.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+wi_map
+dev.off()
+
+ne_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-76,-67)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "AF trend\n(d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/af_map_ne.jpeg", width = 4, height = 3.5, units = "in", res = 300)
+ne_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_euro <- all_trends %>%
+  left_join(lat_long)
+
+euro_map = ggplot(data = world) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(43, 70), xlim = c(-5,30)) +
+  geom_point(data = for_euro, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "AF trend\n(d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/af_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+euro_map
+dev.off()
+
+ggarrange(euro_map, ne_map, wi_map, nrow = 1, align = "hv")
+```
+
+VHOD
+```{r}
+summer_vhod_trends <- read.csv("summer_vhod_trends.csv")
+
+all_trends <- summer_vhod_trends %>%
+  filter(!is.na(trend))
+min = min(all_trends$trend)*10
+max = max(all_trends$trend)*10
+abs_max = max(abs(c(min,max)))
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+us_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(25, 50), xlim = c(-130,-60)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "VHOD trend\n(d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/vhod_map_us.jpeg", width = 8, height = 3.5, units = "in", res = 300)
+us_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_states <- all_trends %>%
+  left_join(lat_long) %>%
+  filter(Country == "USA")
+
+wi_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "VHOD trend\n(d/decade)",
+                       colours = c("blue","blue","white","red","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/vhod_map_wi.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+wi_map
+dev.off()
+
+ne_map = ggplot(data = states) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-76,-67)) +
+  geom_point(data = for_states, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "VHOD trend\n(d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/vhod_map_ne.jpeg", width = 4, height = 3.5, units = "in", res = 300)
+ne_map
+dev.off()
+
+states <- ne_states(returnclass = "sf", country = "United States of America")
+
+for_euro <- all_trends %>%
+  left_join(lat_long)
+
+euro_map = ggplot(data = world) +
+  geom_sf(fill = "grey90", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(43, 70), xlim = c(-5,30)) +
+  geom_point(data = for_euro, 
+             aes(Longitude_DD, Latitude_DD, fill = trend*10),
+             shape = 21, color = "grey30", size = 2, alpha  =.7, stroke = .4)+
+  theme_bw()+
+  scale_fill_gradientn(name = "VHOD trend\n(d/decade)",
+                       colours = c("blue","white","red"),
+                       limits = c(-abs_max, abs_max))+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = margin(0, 0, 0, 0, "cm"),
+        panel.background = element_rect(fill = "white"),
+        legend.position = "bottom")
+jpeg("../Figures/vhod_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
+euro_map
+dev.off()
+
+ggarrange(euro_map, ne_map, wi_map, nrow = 1, align = "hv")
+```

@@ -113,6 +113,23 @@ world_map <- ggplot(data = world) +
 world_map
 dev.off()
 
+jpeg("../Figures/World Map - just points NSF.jpg", res = 300, width = 4.7, height = 2.2, units = "in")
+world_map <- ggplot(data = world) +
+  geom_sf(fill = "white", color = "grey60") +
+  coord_sf(expand = FALSE, ylim = c(-60,90))+
+  geom_point(data = for_map, aes(Longitude_DD, Latitude_DD), fill = "red",shape = 21, color = "white", size = 2, alpha  =.5, stroke = .4)+
+  theme(plot.margin = margin(0, 0, 0, 0, "cm"),
+        legend.box.background = element_rect(fill = "white", color = "white"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid = element_line(color = "grey80",linetype = "dotted", linewidth = 0.0001))
+world_map
+dev.off()
+
 jpeg("../Figures/US Map - just points.jpg", res = 300, width = 6, height = 3, units = "in")
 for_states <- for_map%>%
   filter(Country == "USA")
