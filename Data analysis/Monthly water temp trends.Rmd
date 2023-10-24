@@ -303,6 +303,7 @@ warming %>%
 dev.off()
 ```
 
+Hypo temp
 ```{r}
 library(ggthemes)
 library(sf)
@@ -315,6 +316,7 @@ library(viridis)
 library(ggpubr)
 
 lat_long = read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/fadd3eaa25b5fdd1fc4efba70e660579")
+summer_mean_sen <- read.csv("summer_hypo_temp_mean_trends.csv")
 
 all_trends <- summer_mean_sen %>%
   filter(!is.na(trend))
@@ -423,9 +425,52 @@ euro_map = ggplot(data = world) +
 jpeg("../Figures/hypo_temp_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
 euro_map
 dev.off()
+
+#clustering
+library(ncf)
+library(pgirmess)
+for_cor_ne <- all_trends %>%
+  left_join(lat_long) %>%
+  rename(Y = Latitude_DD,
+         X = Longitude_DD) %>%
+  filter(X >= -76, 
+         X <= -67,
+         Y >= 42,
+         Y <= 47.5)
+
+pgi.cor.ne <- pgirmess::correlog(coords=as.matrix(for_cor_ne[c("X","Y")]), 
+                              z=for_cor_ne[["trend"]], method="Moran")
+ncf.cor.spline.ne <- ncf::spline.correlog(for_cor_ne$X, for_cor_ne$Y, 
+                                       for_cor_ne$trend, latlon = T, resamp=500)
+
+for_cor_wi <- all_trends %>%
+  left_join(lat_long) %>%
+  rename(Y = Latitude_DD,
+         X = Longitude_DD) %>%
+  filter(X >= -93, 
+         X <= -86.5,
+         Y >= 42,
+         Y <= 47.5)
+
+pgi.cor.wi <- pgirmess::correlog(coords=as.matrix(for_cor_wi[c("X","Y")]), 
+                              z=for_cor_wi[["trend"]], method="Moran")
+ncf.cor.spline.wi <- ncf::spline.correlog(for_cor_wi$X, for_cor_wi$Y, 
+                                       for_cor_wi$trend, latlon = T, resamp=500)
+plot(ncf.cor.spline.wi)
+plot(ncf.cor.spline.ne)
+plot(pgi.cor.wi)
+plot(pgi.cor.ne)
+
+library(gstat)
+var_results_wi <- variogram(trend~1, data = for_cor_wi, locations = ~X+Y)
+plot(var_results_wi)
+var_results_ne <- variogram(trend~1, data = for_cor_ne, locations = ~X+Y)
+plot(var_results_ne)
 ```
+
 Warming rate
 ```{r}
+warming <- read.csv("warming_sen.csv")
 all_trends <- warming %>%
   filter(!is.na(trend))
 min = min(all_trends$trend)*10
@@ -533,6 +578,48 @@ euro_map = ggplot(data = world) +
 jpeg("../Figures/warming_rate_map_euro.jpeg", width = 3, height = 3.5, units = "in", res = 300)
 euro_map
 dev.off()
+
+
+#clustering
+library(ncf)
+library(pgirmess)
+for_cor_ne <- all_trends %>%
+  left_join(lat_long) %>%
+  rename(Y = Latitude_DD,
+         X = Longitude_DD) %>%
+  filter(X >= -76, 
+         X <= -67,
+         Y >= 42,
+         Y <= 47.5)
+
+pgi.cor.ne <- pgirmess::correlog(coords=as.matrix(for_cor_ne[c("X","Y")]), 
+                              z=for_cor_ne[["trend"]], method="Moran")
+ncf.cor.spline.ne <- ncf::spline.correlog(for_cor_ne$X, for_cor_ne$Y, 
+                                       for_cor_ne$trend, latlon = T, resamp=500)
+
+for_cor_wi <- all_trends %>%
+  left_join(lat_long) %>%
+  rename(Y = Latitude_DD,
+         X = Longitude_DD) %>%
+  filter(X >= -93, 
+         X <= -86.5,
+         Y >= 42,
+         Y <= 47.5)
+
+pgi.cor.wi <- pgirmess::correlog(coords=as.matrix(for_cor_wi[c("X","Y")]), 
+                              z=for_cor_wi[["trend"]], method="Moran")
+ncf.cor.spline.wi <- ncf::spline.correlog(for_cor_wi$X, for_cor_wi$Y, 
+                                       for_cor_wi$trend, latlon = T, resamp=500)
+plot(ncf.cor.spline.wi)
+plot(ncf.cor.spline.ne)
+plot(pgi.cor.wi)
+plot(pgi.cor.ne)
+
+library(gstat)
+var_results_wi <- variogram(trend~1, data = for_cor_wi, locations = ~X+Y)
+plot(var_results_wi)
+var_results_ne <- variogram(trend~1, data = for_cor_ne, locations = ~X+Y)
+plot(var_results_ne)
 ```
 
 Warming rate discrete
