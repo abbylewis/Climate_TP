@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lubridate)
-library(openair)
+library(trend) #switched from openair 7 Nov 2023
 ```
 
 ```{r}
@@ -42,16 +42,15 @@ sen_slope_custom <- function(df,var){
               min_year = NA,
               max_year = NA)
   for(lake in unique(df$LakeID)){
-    print(paste(lake))
     filt = df %>%
       filter(LakeID==lake) %>%
       mutate(date = as.POSIXct(paste0(Year,"-01-01"))) %>%
       ungroup()%>%
       dplyr::select(-Year)
     if(length(unique(year(filt$date)))>=10){#Only calculate a trend if there are 10 years of data
-      sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F)$data$res2
-      output$trend[output$LakeID==lake]<-sen$slope[1]
-      output$sig[output$LakeID==lake]<-sen$p[1]
+      sen = trend::sens.slope(filt[[var]])
+      output$trend<-sen$estimates[1]
+      output$sig<-sen$p.value[1]
       output$min_year[output$LakeID==lake]<-min(year(filt$date))
       output$max_year[output$LakeID==lake]<-max(year(filt$date))
     }
@@ -67,6 +66,8 @@ sep_sen <- sen_slope_custom(for_sen %>% filter(Month == 9),"Temp_C")
 oct_sen <- sen_slope_custom(for_sen %>% filter(Month == 10),"Temp_C")
 mean_sen <- sen_slope_custom(all_data %>% filter(!is.na(strat_Temp_C_HYPO)), "strat_Temp_C_HYPO")
 summer_mean_sen <- sen_slope_custom(all_data %>% filter(!is.na(Temp_C_HYPO)), "Temp_C_HYPO")
+epi_sen <- sen_slope_custom(all_data %>% filter(!is.na(strat_Temp_C_EPI)), "strat_Temp_C_EPI")
+summer_epi_sen <- sen_slope_custom(all_data %>% filter(!is.na(Temp_C_EPI)), "Temp_C_EPI")
 summer_do_sen <- sen_slope_custom(all_data %>% filter(!is.na(DO_mgL_HYPO), DO_mgL_HYPO > 1), "DO_mgL_HYPO")
 summer_af_sen <- sen_slope_custom(all_data %>% filter(!is.na(AF), AF > 0), "AF")
 summer_vhod_sen <- sen_slope_custom(all_data %>% filter(!is.na(DO_demand_mgLd_HYPO)), "DO_demand_mgLd_HYPO")
@@ -83,9 +84,74 @@ write.csv(all_trends, "hypo_temp_monthly.csv", row.names = F)
 write.csv(mean_sen, "hypo_temp_mean_trends.csv", row.names = F)
 write.csv(summer_do_sen, "summer_do_trends.csv", row.names = F)
 write.csv(summer_af_sen, "summer_af_trends.csv", row.names = F)
+write.csv(epi_sen, "epi_temp_trends.csv", row.names = F)
+write.csv(summer_epi_sen, "summer_epi_temp_trends.csv", row.names = F)
 write.csv(summer_vhod_sen, "summer_vhod_trends.csv", row.names = F)
 write.csv(summer_mean_sen, "summer_hypo_temp_mean_trends.csv", row.names = F)
 ```
+
+```{r}
+hypo_mean <- read.csv("hypo_temp_mean_trends.csv") %>%
+  rename(hypo_mean = trend) %>%
+  select(hypo_mean, LakeID)
+summer_hypo_mean <- read.csv("summer_hypo_temp_mean_trends.csv") %>%
+  rename(summer_hypo_mean = trend) %>%
+  select(summer_hypo_mean, LakeID)
+epi_mean <- read.csv("epi_temp_trends.csv") %>%
+  rename(epi_mean = trend) %>%
+  select(epi_mean, LakeID)
+summer_epi_mean <- read.csv("summer_epi_temp_trends.csv") %>%
+  rename(summer_epi_mean = trend) %>%
+  select(summer_epi_mean, LakeID)
+narr <- read.csv('../Compiled data/climate_narr %>% filter(Year > 1980)_"Temp_C".csv')
+jra55 <- read.csv('../Compiled data/climate_jra55 %>% filter(Year > 1980)_"Temp_C".csv')
+era5 <- read.csv('../Compiled data/climate_era5 %>% filter(Year > 1980)_"Temp_C".csv')
+narr_seas <- narr %>%
+  group_by(LakeID) %>%
+  summarize(Spring = mean(trend[Month %in% c(4)]),
+            Summer = mean(trend[Month %in% c(8)])) %>%
+  mutate(source = "narr")
+jra55_seas <- jra55 %>%
+  group_by(LakeID) %>%
+  summarize(Spring = mean(trend[Month %in% c(4)]),
+            Summer = mean(trend[Month %in% c(8)])) %>%
+  mutate(source = "jra55")
+era5_seas <- era5 %>%
+  group_by(LakeID) %>%
+  summarize(Spring = mean(trend[Month %in% c(4)]),
+            Summer = mean(trend[Month %in% c(8)])) %>%
+  mutate(source = "era5")
+
+ALL <- era5_seas %>%
+  full_join(narr_seas) %>%
+  full_join(jra55_seas) %>%
+  full_join(epi_mean) %>%
+  full_join(hypo_mean) %>%
+  full_join(summer_epi_mean) %>%
+  full_join(summer_hypo_mean) %>%
+  pivot_longer(cols = c("epi_mean", "hypo_mean", "summer_epi_mean", "summer_hypo_mean"),
+               names_to = "layer", values_to = "water_temp") %>%
+  pivot_longer(cols = c("Spring", "Summer"),
+               names_to = "season", values_to = "air_temp")
+
+ALL %>%
+  filter(source == "era5",
+         layer %in% c("summer_epi_mean", "summer_hypo_mean")) %>%
+  mutate(layer = ifelse(layer == "summer_epi_mean", "Epilimnion", "Hypolimnion")) %>%
+  ggplot(aes(x = air_temp, y = water_temp)) +
+  geom_hline(yintercept = 0, color = "grey75") +
+  geom_vline(xintercept = 0, color = "grey75") +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_grid(rows = vars(layer), cols = vars(season), scales = "free")+
+  stat_poly_eq(use_label(c("eq", "p")), coef.digits = 2) +
+  xlab("Air temperature trend (ºC/y)") +
+  ylab("Water temperature trend (ºC/y)") +
+  theme_bw()
+
+library(ggpmisc)
+```
+
 
 Plot significant trends
 ```{r}
@@ -399,8 +465,6 @@ us_map = ggplot(data = states) +
 jpeg("../Figures/hypo_temp_map_ne.jpeg", width = 4, height = 3.5, units = "in", res = 300)
 us_map
 dev.off()
-
-states <- ne_states(returnclass = "sf", country = "United States of America")
 
 for_euro <- all_trends %>%
   left_join(lat_long)

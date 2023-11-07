@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lubridate)
-library(openair)
+library(trend) #switched from open air 7 Nov 2023
 ```
 
 ```{r}
@@ -17,10 +17,7 @@ lat_long = read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/fad
 
 climate_narr = read.csv("../Compiled data/historical_temp_output_narr.csv")
 climate_jra55 = read.csv("../Compiled data/historical_temp_output_jra55.csv")
-climate_era5 = read.csv("../Compiled data/historical_temp_output_era5.csv") %>%
-  left_join(lat_long %>% select(LakeID, StateOrProvince)) %>%
-  filter(StateOrProvince == "Wisconsin") %>%
-  select(-StateOrProvince)
+climate_era5 = read.csv("../Compiled data/historical_temp_output_era5.csv")
 ```
 
 ```{r}
@@ -35,13 +32,12 @@ sen_slope_climate <- function(df,var){
                      min_year = NA,
                      max_year = NA)
   for(lake in unique(df$LakeID)){
-      print(paste(lake))
       filt = df%>%
         filter(LakeID==lake)
       if(length(unique(filt$Year))>=5){
-        sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F, silent = T)$data$res2
-        output$trend[output$LakeID==lake]<-sen$slope[1]
-        output$sig[output$LakeID==lake]<-sen$p[1]
+        sen = trend::sens.slope(filt[[var]])
+        output$trend[output$LakeID==lake]<-sen$estimates[1]
+        output$sig[output$LakeID==lake]<-sen$p.value[1]
         output$min_year[output$LakeID==lake]<-min(year(filt$date))
         output$max_year[output$LakeID==lake]<-max(year(filt$date))
       }
@@ -73,12 +69,12 @@ sen_slope_months <- function(df, var, months = 1:12) {
   return(output)
 }
 
-climate_narr_trends <- sen_slope_months(climate_narr, "Temp_C")
-#write.csv(climate_narr_trends, "../Compiled data/climate_narr_Temp_C.csv", row.names = F)
-climate_jra55_trends <- sen_slope_months(climate_jra55, "Temp_C")
-#write.csv(climate_jra55_trends, "../Compiled data/climate_jra55_Temp_C.csv", row.names = F)
-climate_era5_trends <- sen_slope_months(climate_era5, "Temp_C")
-#write.csv(climate_era5_trends, "../Compiled data/climate_era5_Temp_C.csv", row.names = F)
+climate_narr_trends <- sen_slope_months(climate_narr %>% filter(Year > 1980), 
+                                        "Temp_C") #takes ~10 seconds
+climate_jra55_trends <- sen_slope_months(climate_jra55 %>% filter(Year > 1980), 
+                                         "Temp_C")
+climate_era5_trends <- sen_slope_months(climate_era5 %>% filter(Year > 1980), 
+                                        "Temp_C")
 ```
 
 Lots of code here that could be deleted since I switched to facets

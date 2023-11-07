@@ -214,16 +214,64 @@ wi_lake_tp_conc <- readxl::read_excel("../Compiled data/WI lakes TP.xlsx", sheet
 wi_lake_tp_flux <- readxl::read_excel("../Compiled data/WI lakes TP.xlsx", sheet = 2) %>%
   pivot_longer(-sample_dt, names_to = "id", values_to = "TP_flux")
 wi_lake_ids <- read.csv("../Compiled data/WI_lake47.txt", sep = "\t")
+wi_lake_areas <- read.csv("../Compiled data/static_attributes.csv")
 
 wi_tp_withID <- wi_lake_tp_conc %>%
   full_join(wi_lake_tp_flux) %>%
   left_join(wi_lake_ids, by = c("id")) %>%
   rename(hylak_id = basin_id) %>%
+  left_join(wi_lake_areas %>% dplyr::select(basin, area_km2), by = c("hylak_id" = "basin"))  %>%
   left_join(lat_long) %>%
-  filter(sample_dt > as.POSIXct("1981-01-01"))
+  filter(sample_dt > as.POSIXct("1981-01-01")) %>%
+  mutate(TP_flux_kg_d = (TP_flux/1000000)*area_km2*1000000, #mg/m2/d --> g/d
+         Volume_L = (SurfaceArea_ha*10000 * MeanDepth_m)*1000,
+         TP_flux_ug_L_d = (TP_flux_kg_d*1000*1000*1000) / Volume_L)
 
 lat_long %>%
   filter(LakeID %in% wi_tp_withID$LakeID)
+
+summary_stats = wi_tp_withID %>%
+  pivot_longer(c(TP_flux, TP_conc, TP_flux_kg_d, TP_flux_ug_L_d)) %>%
+  group_by(LakeID, name) %>%
+  summarize(mean = mean(value, na.rm = T),
+            median = median(value, na.rm = T))
+
+map_val <- function(df, name) {
+  for_states <- df%>%
+    left_join(lat_long)
+  states <- ne_states(returnclass = "sf",country = "United States of America")
+  
+  us_map_flux = ggplot(data = states) +
+    geom_sf(fill = "white") +
+    coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+    geom_point(data = for_states, 
+               aes(Longitude_DD, Latitude_DD, fill = mean),
+               shape = 21, color = "grey50", size = 2, stroke = .4)+
+    theme_bw()+
+    scale_fill_viridis(name = name, n.breaks = 4, trans = "log", labels = function(x) round(x, 2))+
+    theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          plot.margin = margin(0, 0, 0, 0, "cm"),
+          panel.background = element_rect(fill = "grey80"),
+          legend.position = "bottom")
+}
+
+mean_map_flux_g_d = map_val(summary_stats %>% filter(name == "TP_flux_kg_d"), "TP flux mass\n(kg/d)")
+mean_map_conc = map_val(summary_stats %>% filter(name == "TP_conc"), "TP conc\n(mg/L)")
+mean_map_flux_ug_L_d = map_val(summary_stats %>% filter(name == "TP_flux_ug_L_d"), "TP flux vol\n(ug/L/d)")
+mean_map_flux_mg_m2_d = map_val(summary_stats %>% filter(name == "TP_flux"), "TP flux area\n(mg/m2/d)")
+
+summary_stats %>% 
+  mutate(name = ifelse(name == "TP_flux", "TP_flux_mg_m2_d", name)) %>%
+  ggplot(aes(x = mean)) +
+  geom_histogram()+
+  facet_wrap(~name, scales = "free")
+
+jpeg("../Figures/TP_input_means.jpeg", width = 6, height = 4, units = "in", res = 300)
+ggarrange(mean_map_flux_mg_m2_d, mean_map_conc, mean_map_flux_g_d, mean_map_flux_ug_L_d)
+dev.off()
 ```
 
 
@@ -243,71 +291,139 @@ source("sen_slope_custom.R") #requires package openair
 wi_tp_trend <- wi_tp_withID %>%
   rename(date = sample_dt)
 tp_input_trend_flux <- sen_slope_custom(wi_tp_trend, "TP_flux")
+tp_input_trend_flux_kg_d <- sen_slope_custom(wi_tp_trend, "TP_flux_kg_d")
+tp_input_trend_flux_ug_Ld <- sen_slope_custom(wi_tp_trend, "TP_flux_ug_L_d")
 tp_input_trend_conc <- sen_slope_custom(wi_tp_trend, "TP_conc")
 
-min = min(tp_input_trend_flux$trend)*10
-max = max(tp_input_trend_flux$trend)*10
-abs_max = max(abs(c(min,max)))
+map_trend <- function(df, name) {
+  min = min(df$trend)*10
+  max = max(df$trend)*10
+  abs_max = max(abs(c(min,max)))
+  
+  for_states <- df%>%
+    left_join(lat_long)
+  states <- ne_states(returnclass = "sf",country = "United States of America")
+  
+  us_map_flux = ggplot(data = states) +
+    geom_sf(fill = "white") +
+    coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
+    geom_point(data = for_states, 
+               aes(Longitude_DD, Latitude_DD, fill = trend*10),
+               shape = 21, color = "grey50", size = 2, alpha  =.5, stroke = .4)+
+    theme_bw()+
+    #scale_fill_viridis(name = "Air temperature trend\n(ºC/decade)",
+    #                   limits = c(min,max), option = "H")+
+    scale_fill_gradientn(name = name,
+                         colours = c("blue","white","red"),
+                         limits = c(-abs_max, abs_max),
+                         n.breaks = 4)+
+    theme(axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          plot.margin = margin(0, 0, 0, 0, "cm"),
+          panel.background = element_rect(fill = "grey80"),
+          legend.position = "bottom")
+}
 
-for_states <- tp_input_trend_flux%>%
-  left_join(lat_long)
-states <- ne_states(returnclass = "sf",country = "United States of America")
-
-us_map_flux = ggplot(data = states) +
-  geom_sf(fill = "white") +
-  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
-  geom_point(data = for_states, 
-             aes(Longitude_DD, Latitude_DD, fill = trend*10),
-             shape = 21, color = "grey50", size = 2, alpha  =.5, stroke = .4)+
-  theme_bw()+
-  #scale_fill_viridis(name = "Air temperature trend\n(ºC/decade)",
-  #                   limits = c(min,max), option = "H")+
-  scale_fill_gradientn(name = "TP flux trend\n(mg/m2/d/decade)",
-                       colours = c("blue","white","red"),
-                       limits = c(-abs_max, abs_max),
-                       n.breaks = 3)+
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        plot.margin = margin(0, 0, 0, 0, "cm"),
-        panel.background = element_rect(fill = "grey80"),
-        legend.position = "bottom")
-
-min = min(tp_input_trend_conc$trend)*10
-max = max(tp_input_trend_conc$trend)*10
-abs_max = max(abs(c(min,max)))
-
-for_states <- tp_input_trend_conc%>%
-  left_join(lat_long)
-states <- ne_states(returnclass = "sf",country = "United States of America")
-
-us_map_conc = ggplot(data = states) +
-  geom_sf(fill = "white") +
-  coord_sf(expand = FALSE, ylim = c(42, 47.5), xlim = c(-93,-86.5))+
-  geom_point(data = for_states, 
-             aes(Longitude_DD, Latitude_DD, fill = trend*10),
-             shape = 21, color = "grey50", size = 2, alpha  =.5, stroke = .4)+
-  theme_bw()+
-  #scale_fill_viridis(name = "Air temperature trend\n(ºC/decade)",
-  #                   limits = c(min,max), option = "H")+
-  scale_fill_gradientn(name = "TP conc trend\n(mg/L/decade)",
-                       colours = c("blue","white","red"),
-                       limits = c(-abs_max, abs_max),
-                       n.breaks = 3)+
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        plot.margin = margin(0, 0, 0, 0, "cm"),
-        panel.background = element_rect(fill = "grey80"),
-        legend.position = "bottom")
+us_map_flux <- map_trend(tp_input_trend_flux, "TP flux area\n(mg/m2/d)")
+us_map_conc <- map_trend(tp_input_trend_conc, "TP conc\n(mg/L)")
+us_map_flux_kg_d <- map_trend(tp_input_trend_flux_kg_d, "TP flux mass\n(kg/d)")
+us_map_flux_ug_L_d <- map_trend(tp_input_trend_flux_ug_Ld, "TP flux vol\n(µg/L/d)")
 
 jpeg("../Figures/TP_input_trends.jpeg", width = 6, height = 4, units = "in", res = 300)
-ggarrange(us_map_flux, us_map_conc)
+ggarrange(us_map_flux, us_map_conc, us_map_flux_kg_d, us_map_flux_ug_L_d)
+dev.off()
+
+all_trends <- tp_input_trend_flux %>% mutate(name = "TP_flux") %>%
+  full_join(tp_input_trend_conc %>% mutate(name = "TP_conc")) %>%
+  full_join(tp_input_trend_flux_kg_d %>% mutate(name = "TP_flux_kg_d")) %>%
+  full_join(tp_input_trend_flux_ug_Ld %>% mutate(name = "TP_flux_ug_L_d")) %>%
+  left_join(summary_stats) %>%
+  mutate(trend = trend / mean * 100)
+
+us_map_flux_pct <- map_trend(all_trends %>% filter(name == "TP_flux"), "TP flux area\n(%/decade)")
+us_map_conc_pct <- map_trend(all_trends %>% filter(name == "TP_conc"), "TP conc\n(%/decade)")
+us_map_flux_kg_d_pct <- map_trend(all_trends %>% filter(name == "TP_flux_kg_d"), "TP flux mass\n(%/decade)")
+us_map_flux_ug_L_d_pct <- map_trend(all_trends %>% filter(name == "TP_flux_ug_L_d"), "TP flux vol\n(%/decade)")
+
+jpeg("../Figures/TP_input_trends_pct.jpeg", width = 6, height = 4, units = "in", res = 300)
+ggarrange(us_map_flux_pct, us_map_conc_pct, us_map_flux_kg_d_pct, us_map_flux_ug_L_d_pct)
 dev.off()
 ```
 
+
+```{r}
+in_lake_sum = with_temp %>%
+  group_by(LakeID) %>%
+  summarize(median_EPI = median(TP_ugL_EPI, na.rm = T), 
+            median_HYPO = median(TP_ugL_HYPO, na.rm = T),
+            mean_EPI = mean(TP_ugL_EPI, na.rm = T), 
+            mean_HYPO = mean(TP_ugL_HYPO, na.rm = T))
+
+library(ggpubr)
+
+summary_stats = wi_tp_withID %>%
+  pivot_longer(c(TP_flux, TP_conc, TP_flux_kg_d, TP_flux_ug_L_d)) %>%
+  group_by(LakeID, name) %>%
+  summarize(mean = mean(value, na.rm = T),
+            median = median(value, na.rm = T))
+
+summary_stats %>%
+  left_join(in_lake_sum) %>%
+  mutate(name = ifelse(name == "TP_conc", "TP conc\n(mg/L)",
+                       ifelse(name == "TP_flux", "TP flux area\n(mg/m2/d)",
+                              ifelse(name == "TP_flux_kg_d", "TP flux mass\n(kg/d)",
+                                     ifelse(name == "TP_flux_ug_L_d", "TP flux vol\n(%/decade)", name))))) %>%
+  ggplot(aes(x = mean, y = mean_EPI)) +
+  geom_point() +
+  scale_x_log10()+
+  facet_wrap(~name, scales = "free_x") +
+  geom_smooth(method = "lm") + 
+  stat_cor()
+
+summary_stats %>%
+  left_join(in_lake_sum) %>%
+  mutate(name = ifelse(name == "TP_conc", "TP conc\n(mg/L)",
+                       ifelse(name == "TP_flux", "TP flux area\n(mg/m2/d)",
+                              ifelse(name == "TP_flux_kg_d", "TP flux mass\n(kg/d)",
+                                     ifelse(name == "TP_flux_ug_L_d", "TP flux vol\n(%/decade)", name))))) %>%
+  ggplot(aes(x = mean, y = mean_HYPO)) +
+  geom_point() +
+  scale_x_log10()+
+  facet_wrap(~name, scales = "free_x") +
+  geom_smooth(method = "lm") + 
+  stat_cor()
+
+in_lake_sum[in_lake_sum$LakeID %in% summary_stats$LakeID,]
+
+in_lake_sum = with_temp %>%
+  group_by(LakeID, Year) %>%
+  summarize(median_EPI = median(TP_ugL_EPI, na.rm = T), 
+            median_HYPO = median(TP_ugL_HYPO, na.rm = T),
+            mean_EPI = mean(TP_ugL_EPI, na.rm = T), 
+            mean_HYPO = mean(TP_ugL_HYPO, na.rm = T))
+
+summary_stats = wi_tp_withID %>%
+  pivot_longer(c(TP_flux, TP_conc, TP_flux_kg_d, TP_flux_ug_L_d)) %>%
+  mutate(Year = year(sample_dt)) %>%
+  group_by(LakeID, name) %>%
+  summarize(mean = mean(value, na.rm = T),
+            median = median(value, na.rm = T))
+
+summary_stats %>%
+  left_join(in_lake_sum) %>%
+  mutate(name = ifelse(name == "TP_conc", "TP conc\n(mg/L)",
+                       ifelse(name == "TP_flux", "TP flux area\n(mg/m2/d)",
+                              ifelse(name == "TP_flux_kg_d", "TP flux mass\n(kg/d)",
+                                     ifelse(name == "TP_flux_ug_L_d", "TP flux vol\n(%/decade)", name))))) %>%
+  ggplot(aes(x = mean, y = mean_EPI)) +
+  geom_point() +
+  scale_x_log10()+
+  facet_wrap(~name, scales = "free_x") +
+  geom_smooth(method = "lm") + 
+  stat_cor()
+```
 
 Monthly inputs correlation
 ```{r}

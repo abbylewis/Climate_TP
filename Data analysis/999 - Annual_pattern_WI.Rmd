@@ -23,7 +23,7 @@ shape = lat_long%>%
   mutate(VD = 3*MeanDepth_m/MaximumDepth_m)%>%
   dplyr::select(LakeID,VD)
 summer_avgs = read.csv("../Compiled data/summer_averages_wi.csv")
-strat_avgs = read.csv("../Compiled data//stratified_averages.csv")%>%
+strat_avgs = read.csv("../Compiled data/stratified_averages.csv")%>%
   dplyr::select(LakeID,Layer,Year,Chla_ugL,Chla_date,Temp_C,Temp_date,hypo_depth,DOC_mgL,TP_ugL,TN_ugL,buoyancy_freq, TP_date,TN_date,SA_vol_ratio)%>%
   rename(strat_Temp_C = Temp_C,
          strat_Temp_date = Temp_date,

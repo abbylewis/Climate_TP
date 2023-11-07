@@ -1,0 +1,506 @@
+---
+title: "DOC vs warming rate"
+author: "Abby Lewis"
+date: "2023-10-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggpubr)
+library(lubridate)
+```
+
+```{r}
+all_data <- read_csv("../Compiled data/All_data_annual AF.csv")
+warming_annual <- read_csv("../Compiled data/Hypo_warming_rate.csv")
+lat_long = read.csv("https://pasta-s.lternet.edu/package/data/eml/edi/1029/9/fadd3eaa25b5fdd1fc4efba70e660579")
+
+all_data %>%
+  filter(!is.na(DOC_mgL_EPI)) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  ggplot(aes(x = DOC_mgL_EPI, y = warming_rate, color = MaximumDepth_m)) +
+  geom_point() +
+  geom_smooth()
+
+z_score <- function(x) {
+  if(sum(!is.na(x))>1){
+    z <-  (x - mean(x, na.rm = T))/sd(x, na.rm = T)
+    return(z)
+  }
+  return(NA)
+}
+
+all_data %>%
+  filter(!is.na(DOC_mgL_EPI)) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  group_by(LakeID) %>%
+  mutate(warming_z = z_score(warming_rate),
+         DOC_z = z_score(DOC_mgL_EPI),
+         n = n(),
+         depth_class = ifelse(MaximumDepth_m<15, "<15",
+                              ifelse(MaximumDepth_m<30, "<30",
+                                     ">30")),
+         mean_doc = mean(DOC_mgL_EPI, na.rm = T)) %>%
+  filter(n>=10, 
+         DOC_z > -2, DOC_z < 2,
+         warming_z > -2, warming_z < 2) %>%
+  ggplot(aes(x = DOC_z, y = warming_z)) +
+  geom_point(aes(color = mean_doc)) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~depth_class) +
+  scale_color_viridis_c()+
+  stat_cor(label.y = 2.2)
+
+all_data %>%
+  ungroup() %>%
+  filter(!is.na(DOC_mgL_EPI)) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  mutate(depth_class = ifelse(MaximumDepth_m<15, "<15",
+                              ifelse(MaximumDepth_m<30, "<30",
+                                     ">30")))%>%
+  ggplot(aes(x = DOC_mgL_EPI, y = warming_rate, color = Latitude_DD)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~depth_class) +
+  scale_color_viridis_c()
+```
+
+```{r}
+secchi <- read_csv("../External data/Secchi_Data.csv")
+
+strat_data <- read_csv("../Compiled data/Stratified_period_data_with_thermo.csv") 
+
+strat_dates <- strat_data%>%
+  select(LakeID, Date_start, Date_end, Year) %>%
+  unique()
+
+secchi_annual <- secchi %>%
+  rename(LakeID = lake_id, #need to do this better
+         Date = date,
+         Year = year) %>%
+  mutate(LakeID = paste0(LakeID)) %>%
+  left_join(strat_dates) %>%
+  left_join(lat_long) %>%
+  mutate(Date_unif = as.Date(ifelse(Latitude_DD>=0,Date,Date+months(6)),origin = "1970-01-01")) %>%
+  filter(Date > Date_start | is.na(Date_start),
+         Date < Date_end | is.na(Date_end),
+         month(Date_unif)>3,
+         month(Date_unif)<11) %>%
+  group_by(LakeID, Year) %>%
+  summarize(secchi = mean(secchi, na.rm = T)) %>%
+  filter(!is.na(secchi))
+
+secchi_annual %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate)) %>%
+  ggplot(aes(x = secchi, y = warming_rate, color = MaximumDepth_m)) +
+  geom_point() +
+  geom_smooth()
+
+secchi_annual %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  group_by(LakeID) %>%
+  mutate(warming_z = z_score(warming_rate),
+         secchi_z = z_score(secchi),
+         n = n(),
+         depth_class = ifelse(MaximumDepth_m<15, "<15",
+                              ifelse(MaximumDepth_m<30, "<30",
+                                     ">30")),
+         mean_secchi = mean(secchi, na.rm = T)) %>%
+  filter(n>=10, 
+         secchi_z > -2, secchi_z < 2,
+         warming_z > -2, warming_z < 2) %>%
+  ggplot(aes(x = secchi_z, y = warming_z, color = mean_secchi)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~depth_class) +
+  scale_color_viridis_c()
+
+secchi_annual %>%
+  ungroup() %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate),
+         !is.na(secchi)) %>%
+  mutate(depth_class = ifelse(MaximumDepth_m<15, "<15",
+                              ifelse(MaximumDepth_m<30, "<30",
+                                     ">30")))%>%
+  ggplot(aes(x = secchi, y = warming_rate, color = Latitude_DD)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~depth_class) +
+  scale_color_viridis_c()
+
+secchi_annual %>%
+  ungroup() %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate),
+         !is.na(secchi)) %>%
+  ggplot(aes(x = secchi/MaximumDepth_m, y = warming_rate, color = Latitude_DD)) +
+  geom_point() +
+  geom_smooth() +
+  scale_color_viridis_c()
+
+all_data %>%
+  left_join(secchi_annual) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate),
+         !is.na(secchi),
+         !is.na(hypo_depth_HYPO),
+         (MaximumDepth_m - hypo_depth_HYPO) > 5) %>%
+  ggplot(aes(x = (secchi/hypo_depth_HYPO), 
+             y = warming_rate)) +
+  geom_point(aes(color = MaximumDepth_m)) +
+  geom_smooth() +
+  scale_color_viridis_c()
+
+all_data %>%
+  left_join(secchi_annual) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  group_by(LakeID) %>%
+  mutate(warming_z = z_score(warming_rate),
+         secchi_z = z_score(secchi/hypo_depth_HYPO),
+         n = n(),
+         depth_class = ifelse(MaximumDepth_m<15, "<15",
+                              ifelse(MaximumDepth_m<30, "<30",
+                                     ">30")),
+         mean_secchi = mean(secchi, na.rm = T)) %>%
+  filter(n>=10, 
+         secchi_z > -2, secchi_z < 2,
+         warming_z > -2, warming_z < 2) %>%
+  ggplot(aes(x = secchi_z, y = warming_z)) +
+  geom_point(aes(color = mean_secchi)) +
+  geom_smooth(method = "lm") +
+  #facet_wrap(~depth_class) +
+  scale_color_viridis_c() +
+  xlab("Z score of (secchi / thermo depth)") +
+  stat_cor(label.y = 2.2)
+
+p = all_data %>%
+  left_join(secchi_annual) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate),
+         !is.na(secchi),
+         !is.na(hypo_depth_HYPO),
+         (MaximumDepth_m - hypo_depth_HYPO) > 5) %>%
+  group_by(LakeID) %>%
+  mutate(n = n()) %>%
+  filter(n >= 10) %>%
+  ggplot(aes(x = (secchi/hypo_depth_HYPO), 
+             y = warming_rate)) +
+  geom_point(aes(color = log(MaximumDepth_m))) +
+  geom_line() +
+  scale_color_viridis_c() +
+  facet_wrap(~LakeID)
+ggsave("plottttt.jpg", width = 10, height = 15, units = "in")
+
+p = all_data %>%
+  left_join(secchi_annual) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate),
+         !is.na(secchi),
+         !is.na(hypo_depth_HYPO),
+         (MaximumDepth_m - hypo_depth_HYPO) > 5) %>%
+  group_by(LakeID) %>%
+  mutate(n = n()) %>%
+  filter(n >= 10) %>%
+  ggplot(aes(x = (secchi/hypo_depth_HYPO), 
+             y = warming_rate)) +
+  geom_point(aes(color = log(MaximumDepth_m))) +
+  geom_line() +
+  scale_color_viridis_c() +
+  facet_wrap(~LakeID, scales = "free")
+ggsave("plottttt2.jpg", width = 15, height = 15, units = "in")
+
+all_data %>%
+  left_join(secchi_annual) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate),
+         !is.na(secchi),
+         !is.na(hypo_depth_HYPO)) %>%
+  filter(LakeID == "441") %>%
+  ggplot(aes(x = (secchi/hypo_depth_HYPO), 
+             y = warming_rate)) +
+  geom_point(aes(color = Year)) +
+  geom_line() +
+  scale_color_viridis_c() +
+  facet_wrap(~LakeID, scales = "free")
+
+all_data %>%
+  left_join(secchi_annual) %>%
+  left_join(warming_annual %>% filter(warming_rate > 0)) %>%
+  left_join(lat_long) %>%
+  filter(!is.na(warming_rate),
+         !is.na(secchi),
+         !is.na(hypo_depth_HYPO)) %>%
+  filter(LakeID == "391") %>%
+  ggplot(aes(x = (secchi/hypo_depth_HYPO), 
+             y = warming_rate)) +
+  geom_point(aes(color = Year)) +
+  geom_line() +
+  scale_color_viridis_c() +
+  facet_wrap(~LakeID, scales = "free")
+```
+
+```{r}
+library(openair)
+sen_slope_custom <- function(df,var){
+  output = df%>%
+    group_by(LakeID)%>%
+    dplyr::summarize(n = n(),
+              trend = NA,
+              sig = NA,
+              min_year = NA,
+              max_year = NA)
+  for(lake in unique(df$LakeID)){
+    print(paste(lake))
+    filt = df %>%
+      filter(LakeID==lake) %>%
+      mutate(date = as.POSIXct(paste0(Year,"-01-01"))) %>%
+      ungroup()%>%
+      dplyr::select(-Year)
+    if(length(unique(year(filt$date)))>=10){#Only calculate a trend if there are 10 years of data
+      sen = TheilSen(filt, pollutant = var, avg.time = "year", plot = F)$data$res2
+      output$trend[output$LakeID==lake]<-sen$slope[1]
+      output$sig[output$LakeID==lake]<-sen$p[1]
+      output$min_year[output$LakeID==lake]<-min(year(filt$date))
+      output$max_year[output$LakeID==lake]<-max(year(filt$date))
+    }
+  }
+  return(output)
+}
+
+secchi_sen <- sen_slope_custom(secchi_annual,"secchi")
+hypo_sen <- sen_slope_custom(all_data %>% filter(!is.na(hypo_depth_HYPO)),"hypo_depth_HYPO")
+hypo_sen_pct <- sen_slope_custom(all_data %>% 
+                               filter(!is.na(hypo_depth_HYPO)) %>%
+                               mutate(hypo_depth_pct = hypo_depth_HYPO/MaximumDepth_m),
+                             "hypo_depth_pct")
+
+jpeg("../Figures/secchi_trends.jpg", res = 300, width = 3, height = 3, units = "in")
+secchi_sen %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend <0, fill = sig < 0.05))+
+  geom_bar() +
+  ylab("Secchi trend")+
+  scale_x_discrete(breaks = c(T, F), labels = c("Decrease", "Increase")) +
+  theme_bw()+
+  theme(axis.title.x = element_blank())
+dev.off()
+
+jpeg("../Figures/hypo_depth_trends.jpg", res = 300, width = 3, height = 3, units = "in")
+hypo_sen %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend <0, fill = sig < 0.05))+
+  geom_bar() +
+  ylab("Hypo depth trend")+
+  scale_x_discrete(breaks = c(T, F), labels = c("Decrease", "Increase")) +
+  theme_bw()+
+  theme(axis.title.x = element_blank())
+dev.off()
+
+write.csv(secchi_sen, "secchi_trends.csv", row.names = F)
+write.csv(hypo_sen, "hypo_depth_trends.csv", row.names = F)
+write.csv(hypo_sen_pct, "hypo_depth_pct_trends.csv", row.names = F)
+```
+
+```{r}
+secchi_sen <- read_csv("secchi_trends.csv")
+hypo_sen <- read_csv("hypo_depth_trends.csv")
+hypo_sen_pct <- read_csv("hypo_depth_pct_trends.csv")
+warming <- read.csv("warming_sen.csv")
+
+secchi_sen %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend*10))+
+  geom_density() +
+  ylab("Secchi trend")+
+  theme_bw()+
+  xlab("Secchi trend (m/decade)")
+
+hypo_sen %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend*10))+
+  geom_density() +
+  ylab("Hypo depth trend")+
+  theme_bw()+
+  xlab("Hypo depth trend (m/decade)")
+
+hypo_sen_pct %>%
+  filter(!is.na(trend)) %>%
+  ggplot(aes(x = trend*10*100))+
+  geom_density() +
+  ylab("Hypo depth trend")+
+  theme_bw()+
+  xlab("Hypo depth trend (%/decade)")
+
+warming %>%
+  mutate(var = "warming") %>%
+  filter(sig<0.05) %>%
+  full_join(secchi_sen %>% 
+              mutate(LakeID = paste0(LakeID),
+                     var = "secchi")%>%
+              filter(sig < 0.05)
+              )%>%
+  select(LakeID, trend, var) %>%
+  pivot_wider(names_from = var, values_from = trend) %>%
+  ggplot(aes(y = warming, x = secchi))+
+  geom_point()
+
+warming %>%
+  mutate(var = "warming") %>%
+  #filter(sig<0.05) %>%
+  full_join(hypo_sen %>% 
+              mutate(LakeID = paste0(LakeID),
+                     var = "hypo")#%>%
+              #filter(sig < 0.05)
+              )%>%
+  select(LakeID, trend, var) %>%
+  pivot_wider(names_from = var, values_from = trend) %>%
+  ggplot(aes(y = warming, x = hypo))+
+  geom_point()
+```
+
+```{r}
+summer_layers <- strat_data%>%
+  mutate(Layer = ifelse(!is.na(Depth_m)&Depth_m<epi_depth, "EPI", NA),
+         Layer = ifelse(is.na(Depth_m)&!is.na(Interval)&Interval=="EPILIMNION","EPI",Layer),
+         Layer = ifelse(!is.na(Depth_m)&Depth_m>hypo_depth,"HYPO",Layer),
+         Layer = ifelse(is.na(Depth_m)&!is.na(Interval)&Interval=="HYPOLIMNION","HYPO",Layer),
+         Layer = ifelse(!is.na(Depth_m)&Depth_m<hypo_depth&Depth_m>epi_depth, "META",Layer),
+         Layer = ifelse(is.na(Depth_m)&!is.na(Interval)&Interval=="METALIMNION","META",Layer))%>%
+  filter(!is.na(Layer))
+
+library(viridis)
+summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  group_by(Date, LakeID) %>%
+  summarize(Temp_C_HYPO = mean(Temp_C, na.rm = T))%>%
+  filter(LakeID=="441") %>%
+  mutate(DOY = yday(Date),
+         Year = year(Date)) %>%
+  filter(DOY>150, DOY < 275)%>%
+  ggplot(aes(y = Temp_C_HYPO, x = DOY, color = as.factor(Year))) +
+  geom_point()+
+  geom_smooth(aes(color = as.factor(Year)), se = F, method = "lm")+
+  scale_color_viridis_d()
+
+summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  group_by(Date, LakeID) %>%
+  summarize(Temp_C_HYPO = mean(Temp_C, na.rm = T))%>%
+  filter(LakeID=="441") %>%
+  mutate(DOY = yday(Date),
+         Year = year(Date)) %>%
+  filter(DOY>150, DOY < 275)%>%
+  filter((Year<1985 & Year >= 1977) | (Year >= 2005)) %>%
+  ggplot(aes(y = Temp_C_HYPO, x = DOY, color = as.factor(Year))) +
+  geom_point()+
+  geom_smooth(aes(color = as.factor(Year)), se = F, method = "lm")+
+  scale_color_viridis_d()+
+  facet_wrap(~Year)+
+  ggtitle("Castle lake (CA)")
+
+lat_long %>%
+  filter(LakeID=="441")
+
+summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  group_by(Date, LakeID) %>%
+  summarize(Temp_C_HYPO = mean(Temp_C, na.rm = T))%>%
+  filter(LakeID=="MIDAS-9961") %>%
+  mutate(DOY = yday(Date),
+         Year = year(Date),
+         Year_class = ifelse(Year>2000, ">2000","≤2000")) %>%
+  #filter(DOY>150, DOY < 275)%>%
+  ggplot(aes(y = Temp_C_HYPO, x = DOY, color = as.factor(Year))) +
+  geom_point()+
+  geom_smooth(aes(color = as.factor(Year)), se = F, method = "lm")+
+  scale_color_viridis_d()
+#+facet_wrap(~Year_class)
+
+summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  group_by(Date, LakeID) %>%
+  summarize(Temp_C_HYPO = mean(Temp_C, na.rm = T))%>%
+  filter(LakeID=="MIDAS-9961") %>%
+  mutate(DOY = yday(Date),
+         Year = year(Date),
+         Year_class = ifelse(Year>2000, ">2000","≤2000")) %>%
+  filter((Year<1985 & !Year == 1975) | Year > 2010) %>%
+  #filter(DOY>150, DOY < 275)%>%
+  ggplot(aes(y = Temp_C_HYPO, x = DOY, color = as.factor(Year))) +
+  geom_point()+
+  geom_smooth(aes(color = as.factor(Year)), se = F, method = "lm")+
+  scale_color_viridis_d()+
+  facet_wrap(~Year)+
+  ggtitle("Annabessacook Lake")
+
+warming_with_lat <- warming %>%
+  left_join(lat_long)
+
+hypo_with_lat <- hypo_sen %>%
+  left_join(lat_long)
+
+summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  group_by(Date, LakeID) %>%
+  summarize(Temp_C_HYPO = mean(Temp_C, na.rm = T))%>%
+  filter(LakeID=="33") %>%
+  mutate(DOY = yday(Date),
+         Year = year(Date),
+         Year_class = ifelse(Year>2000, ">2000","≤2000")) %>%
+  #filter(DOY>150, DOY < 275)%>%
+  ggplot(aes(y = Temp_C_HYPO, x = DOY, color = as.factor(Year))) +
+  geom_point()+
+  geom_smooth(aes(color = as.factor(Year)), se = F, method = "lm")+
+  scale_color_viridis_d()
+
+summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  group_by(Date, LakeID) %>%
+  summarize(Temp_C_HYPO = mean(Temp_C, na.rm = T))%>%
+  filter(LakeID=="55") %>%
+  mutate(DOY = yday(Date),
+         Year = year(Date),
+         Year_class = ifelse(Year>2000, ">2000","≤2000")) %>%
+  #filter(DOY>150, DOY < 275)%>%
+  filter((Year<=1990) | Year >= 2008) %>%
+  ggplot(aes(y = Temp_C_HYPO, x = DOY, color = as.factor(Year))) +
+  geom_point()+
+  geom_smooth(aes(color = as.factor(Year)), se = F, method = "lm")+
+  scale_color_viridis_d()+
+  facet_wrap(~Year)+
+  ggtitle("Lake Annie")
+
+summer_layers %>%
+  filter(Layer == "HYPO", !is.na(Temp_C)) %>%
+  group_by(Date, LakeID) %>%
+  summarize(Temp_C_HYPO = mean(Temp_C, na.rm = T))%>%
+  filter(LakeID=="47") %>%
+  mutate(DOY = yday(Date),
+         Year = year(Date),
+         Year_class = ifelse(Year>2000, ">2000","≤2000")) %>%
+  #filter(DOY>150, DOY < 275)%>%
+  filter((Year<=1983) | Year >= 2008) %>%
+  ggplot(aes(y = Temp_C_HYPO, x = DOY, color = as.factor(Year))) +
+  geom_point()+
+  geom_smooth(aes(color = as.factor(Year)), se = F, method = "lm")+
+  scale_color_viridis_d()+
+  facet_wrap(~Year)+
+  ggtitle("Chub Lake (Ontario)")
+```
+

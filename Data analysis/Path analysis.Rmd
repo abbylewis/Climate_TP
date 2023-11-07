@@ -1,0 +1,43 @@
+---
+title: "Path analysis"
+author: "Abby Lewis"
+date: "2023-11-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+model <-'
+mpg ~ hp + gear + cyl + disp + carb + am + wt
+hp ~ cyl + disp + carb
+'
+library(piecewiseSEM)
+library(nlme)
+#Calculate the zscore of data in a vector
+zscore = function(data, na.rm = T){(data-mean(data, na.rm = na.rm))/sd(data, na.rm = na.rm)}
+#Standardize data
+standardize_data = function(dataset, cols){
+  dataset = dataset%>%
+    ungroup()%>%
+    dplyr::select(all_of(c(cols,"LakeID")))%>%
+    filter(if_all(where(is.numeric),is.finite))%>%
+    mutate(across(-LakeID, zscore))
+  return(dataset)
+}
+```
+
+```{r}
+with_temp = read.csv("../Compiled data/All_data_annual.csv")
+colnames(with_temp)
+
+std_data <- standardize_data(with_temp, cols = c("strat_Temp_C_HYPO", "DO_demand_mgLd_HYPO", "DO_mgL_HYPO", "temp_apr"))
+
+sem <- psem(
+  lme(strat_Temp_C_HYPO ~ temp_apr, random=~1|LakeID, data = std_data),
+  lme(DO_demand_mgLd_HYPO ~ strat_Temp_C_HYPO, random=~1|LakeID, data = std_data),
+  lme(DO_mgL_HYPO ~ DO_demand_mgLd_HYPO + strat_Temp_C_HYPO + temp_apr, random=~1|LakeID, data = std_data)
+)
+
+summary(sem)
+```
+
